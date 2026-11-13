@@ -52,6 +52,7 @@ interface ThemeCustomizerModalProps {
   onClose: () => void;
   customization: InterfaceCustomization;
   onChange: (updated: InterfaceCustomization) => void;
+  supportsXHigh?: boolean;
 }
 
 const PANEL_LABELS: Record<PanelId, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -115,6 +116,7 @@ export const ThemeCustomizerModal: React.FC<ThemeCustomizerModalProps> = ({
   onClose,
   customization,
   onChange,
+  supportsXHigh = true,
 }) => {
   const [activeTab, setActiveTab] = useState<'layout' | 'appearance' | 'editor'>('layout');
 
@@ -122,6 +124,33 @@ export const ThemeCustomizerModal: React.FC<ThemeCustomizerModalProps> = ({
 
   const currentAccent = ACCENT_MAP[customization.accent] || ACCENT_MAP.sage;
   const surface = getSurfacePalette(customization.bgGradient);
+
+  const thinkingTiers = [
+    {
+      id: 'low' as const,
+      title: 'Low',
+      desc: 'Fast, lightweight checks for simple syntax or quick hints.',
+    },
+    {
+      id: 'medium' as const,
+      title: 'Medium',
+      desc: 'Balanced guidance on memory, logic, and edge cases.',
+    },
+    {
+      id: 'high' as const,
+      title: 'High',
+      desc: 'Deeper analysis for tricky lifetimes, pointers, or subtle bugs.',
+    },
+    ...(supportsXHigh
+      ? [
+          {
+            id: 'xhigh' as const,
+            title: 'Extra High',
+            desc: 'Maximum reasoning depth on Gemini 4 Hydrogen for multi-step systems problems.',
+          },
+        ]
+      : []),
+  ];
 
   const handleApplyPreset = (presetId: string) => {
     const found = THEME_PRESETS.find((p) => p.id === presetId);
@@ -1035,29 +1064,12 @@ export const ThemeCustomizerModal: React.FC<ThemeCustomizerModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                  {[
-                    {
-                      id: 'low',
-                      title: 'Low',
-                      desc: 'Fast, lightweight checks for simple syntax or quick hints.',
-                    },
-                    {
-                      id: 'medium',
-                      title: 'Medium',
-                      desc: 'Balanced guidance on memory, logic, and edge cases.',
-                    },
-                    {
-                      id: 'high',
-                      title: 'High',
-                      desc: 'Deeper analysis for tricky lifetimes, pointers, or subtle bugs.',
-                    },
-                    {
-                      id: 'xhigh',
-                      title: 'Extra High',
-                      desc: 'Maximum reasoning depth on Gemini 4 Hydrogen for multi-step systems problems.',
-                    },
-                  ].map((tier) => {
+                <div
+                  className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${
+                    supportsXHigh ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+                  }`}
+                >
+                  {thinkingTiers.map((tier) => {
                     const isSel = customization.reasoningLevel === tier.id;
                     return (
                       <button

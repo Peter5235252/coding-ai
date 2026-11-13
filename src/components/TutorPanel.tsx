@@ -26,6 +26,9 @@ interface TutorPanelProps {
   cornerRadius?: CornerRadiusStyle;
   reasoningLevel: ReasoningLevel;
   onReasoningLevelChange: (level: ReasoningLevel) => void;
+  geminiModelName?: string;
+  onSelectModel?: () => void;
+  supportsXHigh?: boolean;
   onClearMessages?: () => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
@@ -47,6 +50,9 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
   cornerRadius = 'rounded',
   reasoningLevel,
   onReasoningLevelChange,
+  geminiModelName = 'Gemini 4 Hydrogen',
+  onSelectModel,
+  supportsXHigh = true,
   isMaximized = false,
   onToggleMaximize,
   onCyclePosition,
@@ -60,6 +66,21 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
   const [inputVal, setInputVal] = useState('');
   const [showHint, setShowHint] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const reasoningLevels = [
+    { id: 'low' as const, label: 'Low', title: 'Low (Quick)' },
+    { id: 'medium' as const, label: 'Med', title: 'Medium (Balanced)' },
+    { id: 'high' as const, label: 'High', title: 'High (Deep)' },
+    ...(supportsXHigh
+      ? [
+          {
+            id: 'xhigh' as const,
+            label: 'Extra High',
+            title: 'Extra High (Maximum depth on Gemini 4 Hydrogen)',
+          },
+        ]
+      : []),
+  ];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -97,9 +118,16 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
               <span className={`font-semibold text-xs ${surface.text} leading-tight truncate`}>
                 Coding Mentor
               </span>
-              <span className={`px-1.5 py-0.5 rounded-md border ${surface.border} ${surface.chipBg} ${surface.textSubtle} text-[10px] font-medium leading-none shrink-0`}>
-                Gemini 4 Hydrogen
-              </span>
+              <button
+                type="button"
+                onClick={onSelectModel}
+                disabled={!onSelectModel}
+                title={onSelectModel ? 'Change Gemini model or API key' : geminiModelName}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${surface.border} ${surface.chipBg} ${surface.textSubtle} text-[10px] font-medium leading-none shrink-0 hover:opacity-85 disabled:cursor-default`}
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                {geminiModelName}
+              </button>
             </div>
             <span className={`text-[11px] ${surface.textSubtle} truncate block mt-0.5`}>
               Guided questions
@@ -110,14 +138,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
         {/* Thinking Depth & Placement Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
           <div className={`flex items-center p-0.5 rounded-xl ${surface.chipBg} border ${surface.border}`}>
-            {(
-              [
-                { id: 'low', label: 'Low', title: 'Low (Quick)' },
-                { id: 'medium', label: 'Med', title: 'Medium (Balanced)' },
-                { id: 'high', label: 'High', title: 'High (Deep)' },
-                { id: 'xhigh', label: 'Extra High', title: 'Extra High (Maximum depth on Gemini 4 Hydrogen)' },
-              ] as const
-            ).map((lvl) => {
+            {reasoningLevels.map((lvl) => {
               const isActive = reasoningLevel === lvl.id;
               return (
                 <button

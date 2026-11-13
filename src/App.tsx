@@ -46,6 +46,17 @@ import { SkillMatrix } from './components/SkillMatrix';
 import { ChallengeModal } from './components/ChallengeModal';
 import { ThemeCustomizerModal } from './components/ThemeCustomizerModal';
 import { LanguageDropdown } from './components/LanguageDropdown';
+import { GeminiSetupModal } from './components/GeminiSetupModal';
+import {
+  clearOfflineMode,
+  isOfflineModeEnabled,
+  markOfflineMode,
+} from './utils/geminiMode';
+import { getGeminiModel } from '../shared/geminiModels';
+import {
+  fetchGeminiConfig,
+  type GeminiRuntimeConfig,
+} from './utils/geminiConfig';
 import {
   BookOpen,
   BarChart2,
@@ -61,6 +72,8 @@ import {
   Layout,
   LayoutGrid,
   Eye,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 
 const PANEL_NAMES: Record<PanelId, string> = {
@@ -83,6 +96,57 @@ export default function App() {
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(!profile.isOnboarded);
   const [showChallengeModal, setShowChallengeModal] = useState(false);
+
+  // Gemini model selection & encrypted key setup
+  const [geminiConfig, setGeminiConfig] = useState<GeminiRuntimeConfig | null>(null);
+  const [geminiConfigLoaded, setGeminiConfigLoaded] = useState(false);
+  const [showGeminiSetup, setShowGeminiSetup] = useState(false);
+  const [geminiSetupMode, setGeminiSetupMode] = useState<'initial' | 'manage'>('initial');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchGeminiConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setGeminiConfig(config);
+        if (!config.hasKey && !isOfflineModeEnabled()) {
+          setGeminiSetupMode('initial');
+          setShowGeminiSetup(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGeminiSetupMode('initial');
+          setShowGeminiSetup(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setGeminiConfigLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openGeminiSetup = () => {
+    setGeminiSetupMode('manage');
+    setShowGeminiSetup(true);
+  };
+
+  const handleGeminiSaved = (config: GeminiRuntimeConfig) => {
+    setGeminiConfig(config);
+    if (config.hasKey) {
+      clearOfflineMode();
+    }
+    if (geminiSetupMode === 'initial' && config.hasKey) {
+      setShowGeminiSetup(false);
+    }
+  };
+
+  const handleGeminiSkip = () => {
+    markOfflineMode();
+    setShowGeminiSetup(false);
+  };
 
   // Active Challenge / Lesson
   const [activeChallenge, setActiveChallenge] = useState<AdaptiveChallenge | CurriculumLesson | null>(null);
@@ -280,11 +344,23 @@ export default function App() {
   const surface = getSurfacePalette(customization.bgGradient);
   const gapClasses = getWorkspaceGapClass(customization.panelGap);
   const radiusClass = getPanelRadiusClass(customization.cornerRadius);
+  const activeModelInfo = getGeminiModel(geminiConfig?.model);
 
   const handleCustomizationChange = (updated: InterfaceCustomization) => {
     setCustomization(updated);
     saveCustomization(updated);
   };
+
+  useEffect(() => {
+    if (
+      activeModelInfo.id !== 'gemini-4-hydrogen' &&
+      customization.reasoningLevel === 'xhigh'
+    ) {
+      const next = { ...customization, reasoningLevel: 'high' as const };
+      setCustomization(next);
+      saveCustomization(next);
+    }
+  }, [activeModelInfo.id, customization.reasoningLevel]);
 
   const handleToggleAutoTiling = () => {
     const nextAuto = !customization.autoTiling;
@@ -655,6 +731,9 @@ export default function App() {
           onReasoningLevelChange={(level) =>
             handleCustomizationChange({ ...customization, reasoningLevel: level })
           }
+          geminiModelName={activeModelInfo.shortName}
+          onSelectModel={openGeminiSetup}
+          supportsXHigh={activeModelInfo.id === 'gemini-4-hydrogen'}
           isMaximized={isMaximized}
           onToggleMaximize={() => handleToggleMaximize('tutor')}
           onCyclePosition={() => handleCyclePanelPosition('tutor')}
@@ -1193,6 +1272,28 @@ export default function App() {
 
         <button
           type="button"
+          onClick={openGeminiSetup}
+          title={
+            geminiConfig?.hasKey
+              ? `Gemini model: ${activeModelInfo.name} — click to change`
+              : 'Connect your Gemini API key'
+          }
+          className={`inline-flex items-center justify-center gap-1.5 ${
+            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-3 py-1.5 text-xs'
+          } rounded-xl border transition-colors font-medium ${
+            geminiConfig?.hasKey
+              ? `${surface.border} ${surface.card} ${surface.textMuted}`
+              : `${accentConf.border} ${accentConf.bgSubtle} ${accentConf.text}`
+          } ${surface.hoverBg}`}
+        >
+          <Sparkles className={`w-4 h-4 ${accentConf.text}`} />
+          <span className={isVerticalNav ? 'text-[10px]' : 'hidden lg:inline'}>
+            {geminiConfig?.hasKey ? activeModelInfo.shortName : 'Connect AI'}
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setShowThemeModal(true)}
           title="Workspace Layout & Theme Studio"
           className={`inline-flex items-center justify-center gap-1.5 ${
@@ -1362,10 +1463,34 @@ export default function App() {
       style={getBackgroundStyle(customization.bgGradient, customization.accent)}
       className={`flex ${shellFlexClass} h-screen w-screen ${surface.text} font-sans overflow-hidden transition-colors duration-200`}
     >
+      {/* Secure Gemini setup gate */}
+      {!geminiConfigLoaded && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 backdrop-blur-sm font-sans">
+          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border ${surface.borderStrong} ${surface.modalBg} shadow-xl`}>
+            <Loader2 className={`w-4 h-4 animate-spin ${accentConf.text}`} />
+            <span className={`text-xs font-medium ${surface.textMuted}`}>
+              Checking secure Gemini settings…
+            </span>
+          </div>
+        </div>
+      )}
+
+      <GeminiSetupModal
+        isOpen={showGeminiSetup}
+        mode={geminiSetupMode}
+        config={geminiConfig}
+        onSaved={handleGeminiSaved}
+        onSkip={geminiSetupMode === 'initial' ? handleGeminiSkip : undefined}
+        onClose={geminiSetupMode === 'manage' ? () => setShowGeminiSetup(false) : undefined}
+        accent={customization.accent}
+        bgGradient={customization.bgGradient}
+        cornerRadius={customization.cornerRadius}
+      />
+
       {/* Onboarding Questionnaire Modal */}
       <OnboardingModal
         initialProfile={profile}
-        isOpen={showOnboarding}
+        isOpen={showOnboarding && !showGeminiSetup}
         onComplete={(p) => {
           setProfile(p);
           saveUserProfile(p);
@@ -1412,6 +1537,7 @@ export default function App() {
         onClose={() => setShowThemeModal(false)}
         customization={customization}
         onChange={handleCustomizationChange}
+        supportsXHigh={activeModelInfo.id === 'gemini-4-hydrogen'}
       />
 
       {/* Skill Matrix Modal */}

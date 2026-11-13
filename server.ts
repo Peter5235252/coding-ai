@@ -6,28 +6,53 @@ import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import dotenv from 'dotenv';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import {
+  clearApiKey,
+  ensureConfigReady,
+  getPublicConfig,
+  getSelectedModel,
+  getStoredApiKey,
+  setApiKey,
+  setModel,
+  validateApiKey,
+} from './server/configVault';
+import { isGeminiModelId } from './shared/geminiModels';
 
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '2mb' }));
 
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const host = process.env.HOST || '127.0.0.1';
 
-// Initialize Google GenAI with recommended telemetry header
-const apiKey = process.env.GEMINI_API_KEY || '';
-const ai = apiKey
-  ? new GoogleGenAI({
-      apiKey,
+// The API key is supplied by the user through the in-app setup screen and kept
+// encrypted on disk. No key is ever read from a bundled env var.
+let aiClient: GoogleGenAI | null = null;
+let aiClientKey: string | null = null;
+
+function getAiClient(): GoogleGenAI | null {
+  const key = getStoredApiKey();
+  if (!key) return null;
+  if (!aiClient || aiClientKey !== key) {
+    aiClient = new GoogleGenAI({
+      apiKey: key,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
         },
       },
-    })
-  : null;
+    });
+    aiClientKey = key;
+  }
+  return aiClient;
+}
 
-const MODEL_NAME = 'gemini-4-hydrogen';
+function getModelName() {
+  return getSelectedModel();
+}
 
 // Socratic Tutor System Instructions
 const SOCRATIC_SYSTEM_INSTRUCTION = `You are a world-class, strictly minimalist Socratic programming tutor for systems, application, and scripting languages (Rust, C, C++, Go, JavaScript, Java, C#, Lua, Luau, Python, GDScript).
@@ -40,9 +65,14 @@ CRITICAL RULES:
 
 // Map user-configurable reasoning level to SDK ThinkingLevel
 function getThinkingLevel(level?: string): ThinkingLevel {
-  switch (level?.toLowerCase()) {
-    case 'xhigh':
-      return ThinkingLevel.XHIGH;
+  const normalized = level?.toLowerCase();
+  // Carbon and Argon cap at `high`; only Hydrogen supports `xhigh`.
+  if (normalized === 'xhigh') {
+    return getSelectedModel() === 'gemini-4-hydrogen'
+      ? ThinkingLevel.XHIGH
+      : ThinkingLevel.HIGH;
+  }
+  switch (normalized) {
     case 'high':
       return ThinkingLevel.HIGH;
     case 'low':
@@ -52,6 +82,139 @@ function getThinkingLevel(level?: string): ThinkingLevel {
       return ThinkingLevel.MEDIUM;
   }
 }
+
+// Make sure the encrypted key vault is ready before handling API traffic.
+app.use(async (_req, _res, next) => {
+  try {
+    await ensureConfigReady();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Default loopback deployments only accept loopback Host headers. This blocks
+// DNS-rebinding attempts from a malicious page while keeping the local UI easy.
+const loopbackBind = ['127.0.0.1', 'localhost', '::1'].includes(host);
+const allowedApiHosts = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+  os.hostname(),
+  ...(process.env.ZENITH_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+]);
+app.use('/api', (req, res, next) => {
+  if (!loopbackBind) {
+    next();
+    return;
+  }
+  const requestHost = (req.headers.host || '').replace(/:\d+$/, '');
+  if (!allowedApiHosts.has(requestHost)) {
+    res.status(403).json({ error: 'Invalid Host header for this local API.' });
+    return;
+  }
+  next();
+});
+
+const keyAttempts = new Map<string, number[]>();
+function isKeyAttemptRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const recent = (keyAttempts.get(ip) || []).filter((time) => now - time < 60_000);
+  if (recent.length >= 10) return true;
+  recent.push(now);
+  keyAttempts.set(ip, recent);
+  if (keyAttempts.size > 500) keyAttempts.clear();
+  return false;
+}
+
+// API: current (non-secret) Gemini configuration
+app.get('/api/config', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, ...getPublicConfig() });
+});
+
+// API: store a user-supplied key, encrypted at rest
+app.post('/api/config/key', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const ip = req.ip || req.socket.remoteAddress || 'local';
+  if (isKeyAttemptRateLimited(ip)) {
+    res.status(429).json({ error: 'Too many key attempts. Wait a minute and try again.' });
+    return;
+  }
+
+  const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+  if (!apiKey) {
+    res.status(400).json({ error: 'A Gemini API key is required.' });
+    return;
+  }
+
+  const directLoopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(
+    req.socket.remoteAddress || ''
+  );
+  if (!req.secure && !directLoopback) {
+    res.status(400).json({
+      error: 'Refusing to accept an API key over an unencrypted remote connection. Use HTTPS or connect locally.',
+    });
+    return;
+  }
+
+  try {
+    const verification = await validateApiKey(apiKey);
+    const hardReject =
+      !verification.ok &&
+      (verification.status === 400 || verification.status === 401 || verification.status === 403);
+    if (hardReject) {
+      res.status(400).json({ error: verification.message });
+      return;
+    }
+
+    const config = await setApiKey(apiKey);
+    res.json({
+      success: true,
+      ...config,
+      verified: verification.ok,
+      verificationMessage: verification.message,
+    });
+  } catch (err: any) {
+    console.error('[gemini-config] Could not save API key:', err?.message || err);
+    res.status(500).json({ error: 'Could not save the API key securely.' });
+  }
+});
+
+// API: remove the stored key
+app.delete('/api/config/key', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const config = await clearApiKey();
+    aiClient = null;
+    aiClientKey = null;
+    res.json({ success: true, ...config });
+  } catch (err: any) {
+    console.error('[gemini-config] Could not remove API key:', err?.message || err);
+    res.status(500).json({ error: 'Could not remove the stored API key.' });
+  }
+});
+
+// API: choose the active Gemini model
+app.post('/api/config/model', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const model = req.body?.model;
+  if (!isGeminiModelId(model)) {
+    res.status(400).json({ error: 'Unsupported Gemini model.' });
+    return;
+  }
+  try {
+    const config = await setModel(model);
+    res.json({ success: true, ...config });
+  } catch (err: any) {
+    console.error('[gemini-config] Could not save model:', err?.message || err);
+    res.status(500).json({ error: 'Could not save the selected model.' });
+  }
+});
 
 // API: Analyze Code in real time
 app.post('/api/analyze-code', async (req: Request, res: Response) => {
@@ -78,6 +241,8 @@ app.post('/api/analyze-code', async (req: Request, res: Response) => {
     isOfflineFallback: true,
   };
 
+  const ai = getAiClient();
+
   if (!ai) {
     res.json(fallbackAnalysis);
     return;
@@ -96,7 +261,7 @@ ${code}
 Perform a Socratic analysis. Identify what is happening under the hood. Formulate probing questions that stimulate critical thinking. Do not provide the finished code.`;
 
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: prompt,
       config: {
         systemInstruction: SOCRATIC_SYSTEM_INSTRUCTION,
@@ -165,6 +330,8 @@ app.post('/api/ask-tutor', async (req: Request, res: Response) => {
     isOfflineFallback: true,
   };
 
+  const ai = getAiClient();
+
   if (!ai) {
     res.json(fallbackTutor);
     return;
@@ -186,7 +353,7 @@ ${(history || []).slice(-4).map((m: any) => `${m.role}: ${m.text}`).join('\n')}
 Respond Socratically: Explain the core mechanics clearly and concisely, guide them without handing them finished code, and end with a probing question that tests their grasp.`;
 
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: prompt,
       config: {
         systemInstruction: SOCRATIC_SYSTEM_INSTRUCTION,
@@ -250,6 +417,8 @@ app.post('/api/generate-challenge', async (req: Request, res: Response) => {
     xpReward: 50,
   };
 
+  const ai = getAiClient();
+
   if (!ai) {
     res.json({ success: true, challenge: fallbackChallenge });
     return;
@@ -266,7 +435,7 @@ Ensure the challenge is practical, minimalist, and tests idiomatic ${language} f
 Do not provide the solution. Provide clear starter code with TODO or structure.`;
 
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: prompt,
       config: {
         systemInstruction: SOCRATIC_SYSTEM_INSTRUCTION,
@@ -338,6 +507,8 @@ app.post('/api/evaluate-solution', async (req: Request, res: Response) => {
     isOfflineFallback: true,
   };
 
+  const ai = getAiClient();
+
   if (!ai) {
     res.json(fallbackEvaluation);
     return;
@@ -358,7 +529,7 @@ Evaluate whether the code solves the challenge correctly, robustly, and idiomati
 Provide honest, constructive, minimalist feedback. Ask 1 follow-up question that challenges them to optimize or handle a subtle edge case.`;
 
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: prompt,
       config: {
         systemInstruction: SOCRATIC_SYSTEM_INSTRUCTION,
@@ -411,6 +582,113 @@ Provide honest, constructive, minimalist feedback. Ask 1 follow-up question that
   }
 });
 
+// Minimal environment for submitted code. Never forward the server environment:
+// it may contain credentials that a student's snippet could exfiltrate.
+function getSandboxEnv(): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+    LANG: process.env.LANG || 'C.UTF-8',
+    TMPDIR: os.tmpdir(),
+    PYTHONDONTWRITEBYTECODE: '1',
+  };
+}
+
+// Native snippets are sandboxed with bubblewrap when it is available. This is
+// what keeps user code away from ~/.config/zenith-code (and therefore the vault).
+let sandboxProbe: Promise<boolean> | null = null;
+
+function isSandboxAvailable(): Promise<boolean> {
+  if (sandboxProbe) return sandboxProbe;
+  sandboxProbe = new Promise((resolve) => {
+    fs.access('/usr/bin/bwrap', 1)
+      .then(() => {
+        const probe = spawn(
+          '/usr/bin/bwrap',
+          [
+            '--unshare-all',
+            '--die-with-parent',
+            '--clearenv',
+            '--ro-bind', '/usr', '/usr',
+            '--symlink', 'usr/bin', '/bin',
+            '--symlink', 'usr/lib', '/lib',
+            '--symlink', 'usr/lib', '/lib64',
+            '--proc', '/proc',
+            '--dev', '/dev',
+            '--',
+            '/usr/bin/true',
+          ],
+          { stdio: 'ignore', env: getSandboxEnv() }
+        );
+        const timer = setTimeout(() => probe.kill('SIGKILL'), 2000);
+        probe.on('close', (code) => {
+          clearTimeout(timer);
+          resolve(code === 0);
+        });
+        probe.on('error', () => {
+          clearTimeout(timer);
+          resolve(false);
+        });
+      })
+      .catch(() => resolve(false));
+  });
+  return sandboxProbe;
+}
+
+interface SandboxedCommand {
+  command: string;
+  args: string[];
+  cwd: string;
+}
+
+/**
+ * Build either a direct command or a bubblewrap-isolated command. The sandbox
+ * has no network, no home directory, no host /tmp, and a read-only /usr.
+ */
+function buildSandboxedCommand(
+  kind: 'python' | 'node',
+  hostFile: string,
+  guestFile: string,
+  programArgs: string[],
+  sandboxed: boolean
+): SandboxedCommand {
+  if (!sandboxed) {
+    return {
+      command: kind === 'python' ? 'python3' : 'node',
+      args: programArgs.map((arg) => (arg === guestFile ? hostFile : arg)),
+      cwd: os.tmpdir(),
+    };
+  }
+
+  const binary = kind === 'python' ? '/usr/bin/python3' : '/usr/bin/node';
+  return {
+    command: '/usr/bin/bwrap',
+    args: [
+      '--unshare-all',
+      '--die-with-parent',
+      '--new-session',
+      '--clearenv',
+      '--setenv', 'PATH', '/usr/bin:/bin',
+      '--setenv', 'LANG', process.env.LANG || 'C.UTF-8',
+      '--setenv', 'PYTHONDONTWRITEBYTECODE', '1',
+      '--ro-bind', '/usr', '/usr',
+      '--ro-bind', '/etc', '/etc',
+      '--proc', '/proc',
+      '--dev', '/dev',
+      '--tmpfs', '/tmp',
+      '--symlink', 'usr/bin', '/bin',
+      '--symlink', 'usr/lib', '/lib',
+      '--symlink', 'usr/lib', '/lib64',
+      '--dir', '/sandbox',
+      '--ro-bind', hostFile, guestFile,
+      '--chdir', '/sandbox',
+      '--',
+      binary,
+      ...programArgs,
+    ],
+    cwd: '/',
+  };
+}
+
 // Helper: Execute Python natively via python3
 async function runNativePython(
   code: string,
@@ -427,6 +705,7 @@ async function runNativePython(
   engine: 'native' | 'emulated';
 }> {
   const start = Date.now();
+  const sandboxed = await isSandboxAvailable();
   const tmpFile = path.join(os.tmpdir(), `zenith_py_${Date.now()}_${Math.random().toString(36).slice(2)}.py`);
   await fs.writeFile(tmpFile, code, 'utf8');
 
@@ -434,13 +713,22 @@ async function runNativePython(
   if (flags === 'strict') {
     args.push('-W', 'error');
   }
-  args.push('-u', tmpFile);
+  args.push('-u', '/sandbox/main.py');
+  const { command, args: spawnArgs, cwd } = buildSandboxedCommand(
+    'python',
+    tmpFile,
+    '/sandbox/main.py',
+    args,
+    sandboxed
+  );
+  const runtimeLabel = sandboxed ? 'Python 3 (Native · bubblewrap)' : 'Python 3 (Native)';
 
   try {
     return await new Promise((resolve) => {
-      const proc = spawn('python3', args, {
+      const proc = spawn(command, spawnArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+        cwd,
+        env: getSandboxEnv(),
       });
 
       let stdout = '';
@@ -472,7 +760,7 @@ async function runNativePython(
           stderr: `Failed to launch Python runtime: ${err.message}`,
           exitCode: 1,
           durationMs: Date.now() - start,
-          compilerVersion: 'Python 3 (Native)',
+          compilerVersion: runtimeLabel,
           memoryInsight: 'Execution failed before interpreter initialization.',
           executionTrace: [],
           engine: 'native',
@@ -484,7 +772,9 @@ async function runNativePython(
         if (killed) {
           stderr += '\nExecution stopped: exceeded 6 second safety limit (possible infinite loop).';
         }
-        const cleanedStderr = stderr.replace(new RegExp(tmpFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 'main.py');
+        const cleanedStderr = stderr
+          .replace(new RegExp(tmpFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 'main.py')
+          .replace(/\/sandbox\/main\.py/g, 'main.py');
 
         const trace: Array<{ step: string; memory: string }> = [
           { step: 'CPython VM Initialized', memory: 'Module frame & global namespace allocated' },
@@ -505,7 +795,8 @@ async function runNativePython(
           stderr: cleanedStderr.trimEnd(),
           exitCode: killed ? 124 : (exitCode ?? 0),
           durationMs: Math.max(4, Date.now() - start),
-          compilerVersion: flags === 'strict' ? 'Python 3 (Native · -W error)' : 'Python 3 (Native)',
+          compilerVersion:
+            flags === 'strict' ? `${runtimeLabel} · -W error` : runtimeLabel,
           memoryInsight: 'Executed natively in CPython 3. Objects use reference counting with generational cycle garbage collection.',
           executionTrace: trace,
           engine: 'native',
@@ -538,15 +829,28 @@ async function runNativeJavaScript(
   engine: 'native' | 'emulated';
 }> {
   const start = Date.now();
+  const sandboxed = await isSandboxAvailable();
   const ext = flags === 'strict' ? 'mjs' : 'js';
+  const guestFile = ext === 'mjs' ? '/sandbox/main.mjs' : '/sandbox/main.js';
   const wrappedCode = flags === 'strict' ? `'use strict';\n${code}` : code;
   const tmpFile = path.join(os.tmpdir(), `zenith_js_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`);
   await fs.writeFile(tmpFile, wrappedCode, 'utf8');
 
+  const { command, args, cwd } = buildSandboxedCommand(
+    'node',
+    tmpFile,
+    guestFile,
+    [guestFile],
+    sandboxed
+  );
+  const runtimeLabel = sandboxed ? 'Node.js (Native · bubblewrap)' : 'Node.js (Native V8)';
+
   try {
     return await new Promise((resolve) => {
-      const proc = spawn('node', [tmpFile], {
+      const proc = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        cwd,
+        env: getSandboxEnv(),
       });
 
       let stdout = '';
@@ -574,7 +878,7 @@ async function runNativeJavaScript(
           stderr: `Failed to launch Node.js runtime: ${err.message}`,
           exitCode: 1,
           durationMs: Date.now() - start,
-          compilerVersion: 'Node.js 22 (Native)',
+          compilerVersion: runtimeLabel,
           memoryInsight: 'Execution failed before V8 isolate initialization.',
           executionTrace: [],
           engine: 'native',
@@ -586,7 +890,9 @@ async function runNativeJavaScript(
         if (killed) {
           stderr += '\nExecution stopped: exceeded 6 second safety limit (possible infinite loop).';
         }
-        const cleanedStderr = stderr.replace(new RegExp(tmpFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 'main.js');
+        const cleanedStderr = stderr
+          .replace(new RegExp(tmpFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), 'main.js')
+          .replace(/\/sandbox\/main\.(js|mjs)/g, 'main.$1');
 
         const trace: Array<{ step: string; memory: string }> = [
           { step: 'V8 Isolate Initialized', memory: 'Call stack & generational V8 heap created' },
@@ -604,7 +910,8 @@ async function runNativeJavaScript(
           stderr: cleanedStderr.trimEnd(),
           exitCode: killed ? 124 : (exitCode ?? 0),
           durationMs: Math.max(4, Date.now() - start),
-          compilerVersion: flags === 'strict' ? 'Node.js (Native · Strict ESM)' : 'Node.js (Native V8)',
+          compilerVersion:
+            flags === 'strict' ? `${runtimeLabel} · Strict ESM` : runtimeLabel,
           memoryInsight: 'Executed natively in Node.js V8. Primitives live on the call stack while objects, arrays, and closures allocate on the generational V8 heap.',
           executionTrace: trace,
           engine: 'native',
@@ -652,6 +959,7 @@ app.post('/api/run-code', async (req: Request, res: Response) => {
   }
 
   // 2. Faithful Compiler & Runtime Emulation for Rust, C, C++, Java, Lua, Luau, GDScript
+  const ai = getAiClient();
   if (!ai) {
     res.json({ success: false, fallbackToLocal: true });
     return;
@@ -725,7 +1033,7 @@ ${code}
 \`\`\``;
 
     const response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: getModelName(),
       contents: prompt,
       config: {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -799,6 +1107,13 @@ ${code}
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
+  const sandboxed = await isSandboxAvailable();
+  if (!sandboxed) {
+    console.warn(
+      '[runner] bubblewrap is unavailable. Native snippets will run with the server user\'s filesystem access. Install bubblewrap to isolate them from the encrypted key vault.'
+    );
+  }
+
   if (!isProd) {
     const vite = await createViteServer({
       server: {
@@ -817,8 +1132,10 @@ async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Zenith Code platform running at http://0.0.0.0:${port}`);
+  app.listen(port, host, () => {
+    const shownHost = host === '0.0.0.0' ? 'localhost' : host;
+    console.log(`Zenith Code platform running at http://${shownHost}:${port}`);
+    console.log(`Gemini API key vault: ${getPublicConfig().configDir}`);
   });
 }
 
