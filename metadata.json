@@ -1,0 +1,6 @@
+{
+  "name": "Zenith Code - Minimalist Adaptive Programming Tutor",
+  "description": "Distraction-free coding and programming tutorial platform with gamified skill tracking, adaptive challenges, and real-time Socratic AI guidance in Rust, C, C++, Lua, Luau, Python, and GDScript.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

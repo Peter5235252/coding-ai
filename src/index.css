@@ -1,0 +1,310 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  --ease-zenith: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-zenith-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Global tactile responsiveness for buttons and interactive controls */
+button,
+[role="button"] {
+  transition:
+    transform 170ms var(--ease-zenith),
+    background-color 200ms var(--ease-zenith),
+    border-color 200ms var(--ease-zenith),
+    color 200ms var(--ease-zenith),
+    box-shadow 220ms var(--ease-zenith),
+    opacity 180ms ease;
+}
+
+button:active:not(:disabled),
+[role="button"]:active:not([aria-disabled="true"]) {
+  transform: scale(0.972);
+}
+
+select,
+input[type="text"],
+input[type="range"] {
+  transition:
+    border-color 200ms var(--ease-zenith),
+    background-color 200ms var(--ease-zenith),
+    box-shadow 200ms var(--ease-zenith);
+}
+
+/* Bespoke Custom Keyframes (No predefined bounce/pulse/spin loops) */
+@keyframes zenithBackdropFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes zenithModalFloat {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.968);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes zenithDropdownUnfold {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0) scale(0.972);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes zenithStepSlide {
+  from {
+    opacity: 0;
+    transform: translate3d(10px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes zenithBannerSlide {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes zenithItemRise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes zenithTileAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.955);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes zenithSoftWave {
+  0%, 100% {
+    opacity: 0.35;
+    transform: translate3d(0, 0, 0) scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: translate3d(0, -2.5px, 0) scale(1);
+  }
+}
+
+@keyframes zenithTrackGlide {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(260%, 0, 0);
+  }
+}
+
+.zenith-modal-backdrop {
+  animation: zenithBackdropFade 220ms var(--ease-zenith) both;
+}
+
+.zenith-modal-surface {
+  animation: zenithModalFloat 300ms var(--ease-zenith-snappy) both;
+  will-change: transform, opacity;
+}
+
+.zenith-dropdown-menu {
+  animation: zenithDropdownUnfold 200ms var(--ease-zenith-snappy) both;
+  transform-origin: top left;
+  will-change: transform, opacity;
+}
+
+.zenith-step-view {
+  animation: zenithStepSlide 260ms var(--ease-zenith) both;
+}
+
+.zenith-banner-enter {
+  animation: zenithBannerSlide 260ms var(--ease-zenith) both;
+}
+
+.zenith-item-reveal {
+  animation: zenithItemRise 260ms var(--ease-zenith) both;
+}
+
+.zenith-tile-appear {
+  animation: zenithTileAppear 320ms var(--ease-zenith-snappy) both;
+}
+
+.zenith-wave-dot {
+  animation: zenithSoftWave 1150ms var(--ease-zenith) infinite;
+}
+
+.zenith-track-glide {
+  animation: zenithTrackGlide 1350ms var(--ease-zenith) infinite;
+}
+
+.zenith-tile-frame {
+  transition:
+    border-radius 280ms var(--ease-zenith),
+    border-color 220ms var(--ease-zenith),
+    box-shadow 260ms var(--ease-zenith),
+    transform 220ms var(--ease-zenith),
+    opacity 200ms var(--ease-zenith);
+}
+
+.zenith-card-hover {
+  transition:
+    transform 220ms var(--ease-zenith),
+    border-color 200ms var(--ease-zenith),
+    background-color 200ms var(--ease-zenith),
+    box-shadow 240ms var(--ease-zenith);
+}
+
+.zenith-card-hover:hover {
+  transform: translate3d(0, -1.5px, 0);
+}
+
+.zenith-progress-fill {
+  transition: width 420ms var(--ease-zenith);
+}
+
+.zenith-resizer-pill {
+  transition:
+    transform 200ms var(--ease-zenith),
+    opacity 200ms var(--ease-zenith),
+    background-color 200ms var(--ease-zenith);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zenith-modal-backdrop,
+  .zenith-modal-surface,
+  .zenith-dropdown-menu,
+  .zenith-step-view,
+  .zenith-banner-enter,
+  .zenith-item-reveal,
+  .zenith-tile-appear,
+  .zenith-wave-dot,
+  .zenith-track-glide {
+    animation: none !important;
+  }
+  button,
+  [role="button"],
+  .zenith-tile-frame,
+  .zenith-card-hover,
+  .zenith-progress-fill,
+  .zenith-resizer-pill {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Zenith Code - Warm, Natural, Non-Neon Syntax Highlighting */
+.syn-keyword {
+  color: #e88b7d !important;
+  font-weight: 600;
+}
+
+.syn-type {
+  color: #8cc4b8 !important;
+  font-weight: 500;
+}
+
+.syn-function {
+  color: #e5c478 !important;
+  font-weight: 500;
+}
+
+.syn-string {
+  color: #a3c995 !important;
+  font-style: italic;
+}
+
+.syn-number {
+  color: #e3a776 !important;
+  font-weight: 500;
+}
+
+.syn-comment {
+  color: #8f968f !important;
+  font-style: italic;
+  user-select: none;
+}
+
+.syn-annotation {
+  color: #c2a9d6 !important;
+  font-weight: 600;
+}
+
+.syn-preprocessor {
+  color: #e88b7d !important;
+  font-weight: 600;
+}
+
+.syn-operator {
+  color: #b7c9c5 !important;
+}
+
+.syn-variable {
+  color: #e6e2d8 !important;
+}
+
+.syn-text {
+  color: #f0ece3 !important;
+}
+
+/* Soft, Rounded Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 113, 108, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 113, 108, 0.55);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
