@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AccentColor, BackgroundGradientStyle, ExperienceLevel, SupportedLanguage, UserProfile } from '../types';
 import { SUPPORTED_LANGUAGES } from '../utils/languageData';
 import { ACCENT_MAP, getSurfacePalette } from '../utils/themeData';
+import { playSound } from '../utils/soundEngine';
 import { Check, ChevronRight, ChevronLeft, Compass, Shield, Cpu, Code2, Sparkles, X } from 'lucide-react';
 
 interface OnboardingModalProps {
@@ -49,6 +50,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   };
 
   const handleFinish = () => {
+    playSound('challengePass');
     const updated: UserProfile = {
       ...initialProfile,
       name: name.trim() || 'Learner',
@@ -151,7 +153,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setLevel(item.id as ExperienceLevel)}
+                        onClick={() => {
+                          playSound('select');
+                          setLevel(item.id as ExperienceLevel);
+                        }}
                         className={`zenith-card-hover text-left p-4 rounded-2xl border ${
                           isSelected
                             ? `${accentConf.bgSubtle} ${accentConf.border} shadow-xs`
@@ -248,7 +253,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <button
                         key={g.id}
                         type="button"
-                        onClick={() => setPrimaryGoal(g.id as UserProfile['primaryGoal'])}
+                        onClick={() => {
+                          playSound('select');
+                          setPrimaryGoal(g.id as UserProfile['primaryGoal']);
+                        }}
                         className={`zenith-card-hover text-left p-4 rounded-2xl border ${
                           isSelected
                             ? `${accentConf.bgSubtle} ${accentConf.border} shadow-xs`
@@ -285,7 +293,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <button
                         key={langKey}
                         type="button"
-                        onClick={() => setActiveLanguage(langKey)}
+                        onClick={() => {
+                          playSound('select');
+                          setActiveLanguage(langKey);
+                        }}
                         className={`zenith-card-hover text-left p-3.5 rounded-2xl border ${
                           isSelected
                             ? `${accentConf.bgSubtle} ${accentConf.border} shadow-xs`
@@ -346,7 +357,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <button
                         key={style.id}
                         type="button"
-                        onClick={() => setLearningPace(style.id as UserProfile['learningPace'])}
+                        onClick={() => {
+                          playSound('select');
+                          setLearningPace(style.id as UserProfile['learningPace']);
+                        }}
                         className={`zenith-card-hover w-full text-left p-4 rounded-2xl border ${
                           isSelected
                             ? `${accentConf.bgSubtle} ${accentConf.border} shadow-xs`
@@ -377,7 +391,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           {step > 1 ? (
             <button
               type="button"
-              onClick={() => setStep(step - 1)}
+              onClick={() => {
+                playSound('tab');
+                setStep(step - 1);
+              }}
               className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-xl border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} transition-colors`}
             >
               <ChevronLeft className="w-4 h-4" />
@@ -390,7 +407,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           {step < totalSteps ? (
             <button
               type="button"
-              onClick={() => setStep(step + 1)}
+              onClick={() => {
+                playSound('tab');
+                setStep(step + 1);
+              }}
               className={`inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold rounded-xl ${accentConf.bg} shadow-sm hover:opacity-95 transition-all`}
             >
               <span>Next</span>

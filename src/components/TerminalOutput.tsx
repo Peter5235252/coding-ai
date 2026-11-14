@@ -1,17 +1,37 @@
 import React, { useState } from 'react';
 import { ExecutionResult, LANGUAGE_RUNNER_OPTIONS } from '../utils/codeRunner';
-import { AccentColor, BackgroundGradientStyle, CornerRadiusStyle, SupportedLanguage } from '../types';
-import { ACCENT_MAP, getPanelRadiusClass, getSurfacePalette } from '../utils/themeData';
+import {
+  AccentColor,
+  BackgroundGradientStyle,
+  CornerRadiusStyle,
+  EditorSurfaceStyle,
+  PanelHeaderStyle,
+  SurfaceStyle,
+  SupportedLanguage,
+} from '../types';
+import {
+  getAccentConfig,
+  getEditorSurfaceColors,
+  getPanelRadiusClass,
+  getSurfacePalette,
+} from '../utils/themeData';
 import { PanelControls } from './PanelControls';
+import { playSound } from '../utils/soundEngine';
 import { Terminal, Cpu, Trash2, CheckCircle2, AlertTriangle, Activity, Keyboard, Play } from 'lucide-react';
+import { LinuxTerminal } from './LinuxTerminal';
 
 interface TerminalOutputProps {
   result: ExecutionResult | null;
   isRunning: boolean;
   onClear: () => void;
   language: SupportedLanguage;
+  currentCode?: string;
   accent?: AccentColor;
+  customAccentHex?: string;
   bgGradient?: BackgroundGradientStyle;
+  surfaceStyle?: SurfaceStyle;
+  editorSurface?: EditorSurfaceStyle;
+  panelHeaderStyle?: PanelHeaderStyle;
   cornerRadius?: CornerRadiusStyle;
   stdin: string;
   onStdinChange: (val: string) => void;
@@ -30,8 +50,13 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
   isRunning,
   onClear,
   language,
+  currentCode = '',
   accent = 'sage',
+  customAccentHex,
   bgGradient = 'warm-linen',
+  surfaceStyle = 'crisp',
+  editorSurface = 'matte-slate',
+  panelHeaderStyle = 'detailed',
   cornerRadius = 'rounded',
   stdin,
   onStdinChange,
@@ -44,11 +69,12 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
   onHidePanel,
   onDragStartPanel,
 }) => {
-  const [tab, setTab] = useState<'console' | 'trace' | 'memory'>('console');
+  const [tab, setTab] = useState<'console' | 'trace' | 'memory' | 'linux'>('console');
   const [showStdin, setShowStdin] = useState(false);
 
-  const accentConf = ACCENT_MAP[accent] || ACCENT_MAP.sage;
-  const surface = getSurfacePalette(bgGradient);
+  const accentConf = getAccentConfig(accent, customAccentHex);
+  const surface = getSurfacePalette(bgGradient, surfaceStyle);
+  const editorColors = getEditorSurfaceColors(editorSurface);
   const radiusClass = getPanelRadiusClass(cornerRadius);
   const flagOptions = LANGUAGE_RUNNER_OPTIONS[language] || [];
 
@@ -58,12 +84,17 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
       <div
         draggable={!!onDragStartPanel}
         onDragStart={onDragStartPanel}
-        className={`flex items-center justify-between px-3 py-2 border-b ${surface.border} ${surface.cardMuted} shrink-0 gap-2 flex-wrap`}
+        className={`flex items-center justify-between ${
+          panelHeaderStyle === 'minimal' ? 'px-3 py-1.5' : 'px-3 py-2'
+        } border-b ${surface.border} ${surface.cardMuted} shrink-0 gap-2 flex-wrap`}
       >
         <div className={`flex items-center gap-1 p-0.5 rounded-xl ${surface.chipBg}`}>
           <button
             type="button"
-            onClick={() => setTab('console')}
+            onClick={() => {
+              playSound('tab');
+              setTab('console');
+            }}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               tab === 'console'
                 ? `${surface.card} ${surface.text} shadow-xs`
@@ -76,7 +107,10 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
 
           <button
             type="button"
-            onClick={() => setTab('trace')}
+            onClick={() => {
+              playSound('tab');
+              setTab('trace');
+            }}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               tab === 'trace'
                 ? `${surface.card} ${surface.text} shadow-xs`
@@ -89,7 +123,10 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
 
           <button
             type="button"
-            onClick={() => setTab('memory')}
+            onClick={() => {
+              playSound('tab');
+              setTab('memory');
+            }}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
               tab === 'memory'
                 ? `${surface.card} ${surface.text} shadow-xs`
@@ -98,6 +135,23 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
           >
             <Cpu className={`w-3.5 h-3.5 ${tab === 'memory' ? accentConf.text : ''}`} />
             <span className="hidden sm:inline">Memory</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              playSound('tab');
+              setTab('linux');
+            }}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+              tab === 'linux'
+                ? `${surface.card} ${surface.text} shadow-xs`
+                : `${surface.textMuted} hover:opacity-80`
+            }`}
+            title="Real Linux Terminal (WebAssembly x86 VM)"
+          >
+            <Terminal className={`w-3.5 h-3.5 ${tab === 'linux' ? accentConf.text : ''}`} />
+            <span>Linux Shell</span>
           </button>
         </div>
 
@@ -120,7 +174,11 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
 
           <button
             type="button"
-            onClick={() => setShowStdin(!showStdin)}
+            onClick={() => {
+              const next = !showStdin;
+              playSound(next ? 'toggleOn' : 'toggleOff');
+              setShowStdin(next);
+            }}
             title="Provide standard input (stdin)"
             className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
               showStdin || stdin.trim()
@@ -134,7 +192,10 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
 
           <button
             type="button"
-            onClick={onClear}
+            onClick={() => {
+              playSound('clear');
+              onClear();
+            }}
             title="Clear output"
             className={`p-1.5 rounded-lg ${surface.textSubtle} ${surface.hoverBg} transition-colors`}
           >
@@ -180,8 +241,25 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
       )}
 
       {/* Output Body */}
-      <div className="flex-1 p-4 overflow-y-auto bg-[#212422] font-mono text-xs leading-5 text-[#EAE5DB]">
-        {isRunning ? (
+      {tab === 'linux' ? (
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <LinuxTerminal
+            currentCode={currentCode}
+            language={language}
+            accent={accent}
+            customAccentHex={customAccentHex}
+            bgGradient={bgGradient}
+            surfaceStyle={surfaceStyle}
+            editorSurface={editorSurface}
+            cornerRadius={cornerRadius}
+          />
+        </div>
+      ) : (
+        <div
+          className="flex-1 p-4 overflow-y-auto font-mono text-xs leading-5 text-[#EAE5DB]"
+          style={{ backgroundColor: editorColors.bg }}
+        >
+          {isRunning ? (
           <div className="zenith-banner-enter space-y-2.5 max-w-sm">
             <div className="text-[#D2D8D2] font-sans text-xs font-medium">
               Compiling &amp; running {language} program...
@@ -210,6 +288,26 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
                     )}
                     {result.compilerVersion && (
                       <span className="text-[#9AA29A]">· {result.compilerVersion}</span>
+                    )}
+                    {result.engine && (
+                      <span
+                        className={`${
+                          result.engine === 'native' || result.engine === 'wasm' || result.engine === 'sandbox'
+                            ? 'text-[#8FBE94]'
+                            : 'text-[#D6B97A]'
+                        }`}
+                      >
+                        ·{' '}
+                        {result.engine === 'native'
+                          ? 'Native Runtime'
+                          : result.engine === 'wasm'
+                          ? 'WebAssembly VM'
+                          : result.engine === 'sandbox'
+                          ? 'Real Compiler Sandbox'
+                          : result.engine === 'emulated'
+                          ? 'AI Emulated'
+                          : 'Offline Subset'}
+                      </span>
                     )}
                   </div>
                   <span className="text-[#8E968E] font-mono">{result.durationMs}ms</span>
@@ -304,6 +402,7 @@ export const TerminalOutput: React.FC<TerminalOutputProps> = ({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

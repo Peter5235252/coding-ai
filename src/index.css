@@ -1,17 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--zenith-ui-font, 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif);
+  --font-mono: var(--zenith-mono-font, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 :root {
   --ease-zenith: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-zenith-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+  --zenith-motion-scale: 1;
+  --zenith-ui-font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --zenith-mono-font: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --zenith-accent: #3D6B56;
+  --zenith-accent-fg: #FFFFFF;
+  --zenith-accent-text: #3D6B56;
+  --zenith-accent-subtle: rgba(61, 107, 86, 0.12);
+  --zenith-accent-border: rgba(61, 107, 86, 0.40);
 }
 
 body {
-  font-family: var(--font-sans);
+  font-family: var(--zenith-ui-font, var(--font-sans));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -20,12 +28,12 @@ body {
 button,
 [role="button"] {
   transition:
-    transform 170ms var(--ease-zenith),
-    background-color 200ms var(--ease-zenith),
-    border-color 200ms var(--ease-zenith),
-    color 200ms var(--ease-zenith),
-    box-shadow 220ms var(--ease-zenith),
-    opacity 180ms ease;
+    transform calc(170ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    background-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    border-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    box-shadow calc(220ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    opacity calc(180ms * var(--zenith-motion-scale, 1)) ease;
 }
 
 button:active:not(:disabled),
@@ -37,9 +45,9 @@ select,
 input[type="text"],
 input[type="range"] {
   transition:
-    border-color 200ms var(--ease-zenith),
-    background-color 200ms var(--ease-zenith),
-    box-shadow 200ms var(--ease-zenith);
+    border-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    background-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    box-shadow calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith);
 }
 
 /* Bespoke Custom Keyframes (No predefined bounce/pulse/spin loops) */
@@ -139,34 +147,34 @@ input[type="range"] {
 }
 
 .zenith-modal-backdrop {
-  animation: zenithBackdropFade 220ms var(--ease-zenith) both;
+  animation: zenithBackdropFade calc(220ms * var(--zenith-motion-scale, 1)) var(--ease-zenith) both;
 }
 
 .zenith-modal-surface {
-  animation: zenithModalFloat 300ms var(--ease-zenith-snappy) both;
+  animation: zenithModalFloat calc(300ms * var(--zenith-motion-scale, 1)) var(--ease-zenith-snappy) both;
   will-change: transform, opacity;
 }
 
 .zenith-dropdown-menu {
-  animation: zenithDropdownUnfold 200ms var(--ease-zenith-snappy) both;
+  animation: zenithDropdownUnfold calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith-snappy) both;
   transform-origin: top left;
   will-change: transform, opacity;
 }
 
 .zenith-step-view {
-  animation: zenithStepSlide 260ms var(--ease-zenith) both;
+  animation: zenithStepSlide calc(260ms * var(--zenith-motion-scale, 1)) var(--ease-zenith) both;
 }
 
 .zenith-banner-enter {
-  animation: zenithBannerSlide 260ms var(--ease-zenith) both;
+  animation: zenithBannerSlide calc(260ms * var(--zenith-motion-scale, 1)) var(--ease-zenith) both;
 }
 
 .zenith-item-reveal {
-  animation: zenithItemRise 260ms var(--ease-zenith) both;
+  animation: zenithItemRise calc(260ms * var(--zenith-motion-scale, 1)) var(--ease-zenith) both;
 }
 
 .zenith-tile-appear {
-  animation: zenithTileAppear 320ms var(--ease-zenith-snappy) both;
+  animation: zenithTileAppear calc(320ms * var(--zenith-motion-scale, 1)) var(--ease-zenith-snappy) both;
 }
 
 .zenith-wave-dot {
@@ -179,19 +187,19 @@ input[type="range"] {
 
 .zenith-tile-frame {
   transition:
-    border-radius 280ms var(--ease-zenith),
-    border-color 220ms var(--ease-zenith),
-    box-shadow 260ms var(--ease-zenith),
-    transform 220ms var(--ease-zenith),
-    opacity 200ms var(--ease-zenith);
+    border-radius calc(280ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    border-color calc(220ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    box-shadow calc(260ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    transform calc(220ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    opacity calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith);
 }
 
 .zenith-card-hover {
   transition:
-    transform 220ms var(--ease-zenith),
-    border-color 200ms var(--ease-zenith),
-    background-color 200ms var(--ease-zenith),
-    box-shadow 240ms var(--ease-zenith);
+    transform calc(220ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    border-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    background-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    box-shadow calc(240ms * var(--zenith-motion-scale, 1)) var(--ease-zenith);
 }
 
 .zenith-card-hover:hover {
@@ -199,14 +207,14 @@ input[type="range"] {
 }
 
 .zenith-progress-fill {
-  transition: width 420ms var(--ease-zenith);
+  transition: width calc(420ms * var(--zenith-motion-scale, 1)) var(--ease-zenith);
 }
 
 .zenith-resizer-pill {
   transition:
-    transform 200ms var(--ease-zenith),
-    opacity 200ms var(--ease-zenith),
-    background-color 200ms var(--ease-zenith);
+    transform calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    opacity calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith),
+    background-color calc(200ms * var(--zenith-motion-scale, 1)) var(--ease-zenith);
 }
 
 @media (prefers-reduced-motion: reduce) {

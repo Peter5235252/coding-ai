@@ -7,6 +7,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AdaptiveChallenge,
   CurriculumLesson,
+  HydrogenReviewResult,
   InterfaceCustomization,
   PanelId,
   ProgressState,
@@ -25,12 +26,15 @@ import {
   saveUserProfile,
 } from './utils/storage';
 import {
-  ACCENT_MAP,
+  getAccentConfig,
   getBackgroundStyle,
+  getFontFamilyStrings,
   getPanelRadiusClass,
   getSurfacePalette,
   getWorkspaceGapClass,
+  isDarkBackground,
   loadCustomization,
+  resolveAccentCssVars,
   saveCustomization,
 } from './utils/themeData';
 import {
@@ -38,25 +42,19 @@ import {
   ExecutionResult,
   LANGUAGE_RUNNER_OPTIONS,
 } from './utils/codeRunner';
+import {
+  initGlobalUISoundDelegation,
+  playSound,
+  updateSoundConfig,
+} from './utils/soundEngine';
 import { OnboardingModal } from './components/OnboardingModal';
 import { CodeEditor } from './components/CodeEditor';
 import { TutorPanel } from './components/TutorPanel';
 import { TerminalOutput } from './components/TerminalOutput';
 import { SkillMatrix } from './components/SkillMatrix';
 import { ChallengeModal } from './components/ChallengeModal';
-import { ThemeCustomizerModal } from './components/ThemeCustomizerModal';
+import { SettingsModal, SettingsTab } from './components/SettingsModal';
 import { LanguageDropdown } from './components/LanguageDropdown';
-import { GeminiSetupModal } from './components/GeminiSetupModal';
-import {
-  clearOfflineMode,
-  isOfflineModeEnabled,
-  markOfflineMode,
-} from './utils/geminiMode';
-import { getGeminiModel } from '../shared/geminiModels';
-import {
-  fetchGeminiConfig,
-  type GeminiRuntimeConfig,
-} from './utils/geminiConfig';
 import {
   BookOpen,
   BarChart2,
@@ -67,20 +65,44 @@ import {
   Code2,
   Terminal as TerminalIcon,
   MessageCircle,
-  Palette,
   Sprout,
   Layout,
-  LayoutGrid,
   Eye,
-  Sparkles,
-  Loader2,
+  EyeOff,
+  Columns2,
+  GripVertical,
+  FolderKanban,
+  Brain,
+  X,
 } from 'lucide-react';
+import {
+  ReasoningEffortSlider,
+  getReasoningTierMeta,
+} from './components/ReasoningEffortSlider';
+import { TilingDropdown } from './components/TilingDropdown';
 
 const PANEL_NAMES: Record<PanelId, string> = {
   editor: 'Code Editor',
   terminal: 'Output Console',
   tutor: 'Coding Mentor',
 };
+
+const PANEL_ICONS: Record<PanelId, React.ComponentType<{ className?: string }>> = {
+  editor: Code2,
+  terminal: TerminalIcon,
+  tutor: MessageCircle,
+};
+
+function isSplitAlgorithm(
+  alg: InterfaceCustomization['autoTilingAlgorithm']
+): alg is 'smart-bsp' | 'equal-columns' | 'dwindle' | 'equal-rows' {
+  return (
+    alg === 'smart-bsp' ||
+    alg === 'equal-columns' ||
+    alg === 'dwindle' ||
+    alg === 'equal-rows'
+  );
+}
 
 export default function App() {
   // Core Profile & Progress State
@@ -92,67 +114,20 @@ export default function App() {
 
   // Theme & Layout Customization
   const [customization, setCustomization] = useState<InterfaceCustomization>(loadCustomization);
-  const [showThemeModal, setShowThemeModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('general');
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(!profile.isOnboarded);
   const [showChallengeModal, setShowChallengeModal] = useState(false);
-
-  // Gemini model selection & encrypted key setup
-  const [geminiConfig, setGeminiConfig] = useState<GeminiRuntimeConfig | null>(null);
-  const [geminiConfigLoaded, setGeminiConfigLoaded] = useState(false);
-  const [showGeminiSetup, setShowGeminiSetup] = useState(false);
-  const [geminiSetupMode, setGeminiSetupMode] = useState<'initial' | 'manage'>('initial');
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchGeminiConfig()
-      .then((config) => {
-        if (cancelled) return;
-        setGeminiConfig(config);
-        if (!config.hasKey && !isOfflineModeEnabled()) {
-          setGeminiSetupMode('initial');
-          setShowGeminiSetup(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setGeminiSetupMode('initial');
-          setShowGeminiSetup(true);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setGeminiConfigLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const openGeminiSetup = () => {
-    setGeminiSetupMode('manage');
-    setShowGeminiSetup(true);
-  };
-
-  const handleGeminiSaved = (config: GeminiRuntimeConfig) => {
-    setGeminiConfig(config);
-    if (config.hasKey) {
-      clearOfflineMode();
-    }
-    if (geminiSetupMode === 'initial' && config.hasKey) {
-      setShowGeminiSetup(false);
-    }
-  };
-
-  const handleGeminiSkip = () => {
-    markOfflineMode();
-    setShowGeminiSetup(false);
-  };
+  const [showReasoningPopover, setShowReasoningPopover] = useState(false);
 
   // Active Challenge / Lesson
   const [activeChallenge, setActiveChallenge] = useState<AdaptiveChallenge | CurriculumLesson | null>(null);
 
-  // Mobile View Tab ('editor' | 'terminal' | 'tutor')
+  // Mobile View Tab & Desktop Stacked/Tabbed Active Window State
   const [mobileTab, setMobileTab] = useState<PanelId>('editor');
+  const [activeWindowTab, setActiveWindowTab] = useState<PanelId>('editor');
+  const [activeSecondaryTab, setActiveSecondaryTab] = useState<PanelId>('terminal');
 
   // Code Buffer
   const [code, setCode] = useState<string>(() => {
@@ -172,6 +147,10 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [tutorMessages, setTutorMessages] = useState<TutorMessage[]>([]);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+
+  // Hydrogen Inline Code Analysis & Real-Time Selective Patching
+  const [hydrogenReview, setHydrogenReview] = useState<HydrogenReviewResult | null>(null);
+  const [isHydrogenAnalyzing, setIsHydrogenAnalyzing] = useState(false);
 
   // Challenge Evaluation State
   const [isEvaluating, setIsEvaluating] = useState(false);
@@ -224,6 +203,60 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
+  // Sync dynamic CSS variables (custom accent hex, typography, motion scale) globally
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const isDark = isDarkBackground(customization.bgGradient);
+    const accentVars = resolveAccentCssVars(
+      customization.accent,
+      customization.customAccentHex,
+      isDark
+    );
+    Object.entries(accentVars).forEach(([key, val]) => {
+      root.style.setProperty(key, val);
+    });
+
+    const fonts = getFontFamilyStrings(
+      customization.uiFontFamily,
+      customization.editorFontFamily
+    );
+    root.style.setProperty('--zenith-ui-font', fonts.ui);
+    root.style.setProperty('--zenith-mono-font', fonts.mono);
+
+    const motionScale =
+      customization.motionIntensity === 'reduced'
+        ? '0'
+        : customization.motionIntensity === 'snappy'
+        ? '0.55'
+        : '1';
+    root.style.setProperty('--zenith-motion-scale', motionScale);
+  }, [
+    customization.accent,
+    customization.customAccentHex,
+    customization.bgGradient,
+    customization.uiFontFamily,
+    customization.editorFontFamily,
+    customization.motionIntensity,
+  ]);
+
+  // Sync synthesized Web Audio UI sound preferences & mount global event delegation
+  useEffect(() => {
+    updateSoundConfig({
+      enabled: customization.soundEnabled,
+      volume: customization.soundVolume,
+      editorKeySounds: customization.editorKeySounds,
+    });
+  }, [
+    customization.soundEnabled,
+    customization.soundVolume,
+    customization.editorKeySounds,
+  ]);
+
+  useEffect(() => {
+    return initGlobalUISoundDelegation();
+  }, []);
+
   // Bespoke FLIP Window Tiling & Placement Animation Engine
   useLayoutEffect(() => {
     const panelIds: PanelId[] = ['editor', 'terminal', 'tutor'];
@@ -255,7 +288,10 @@ export default function App() {
       }
 
       const prevRect = prevRectsRef.current[panelId];
-      if (hasMountedLayoutRef.current && !prefersReducedMotion && !isDraggingSplitRef.current && typeof el.animate === 'function') {
+      const motionDisabled = prefersReducedMotion || customization.motionIntensity === 'reduced';
+      const moveDuration = customization.motionIntensity === 'snappy' ? 210 : 360;
+      const enterDuration = customization.motionIntensity === 'snappy' ? 180 : 300;
+      if (hasMountedLayoutRef.current && !motionDisabled && !isDraggingSplitRef.current && typeof el.animate === 'function') {
         if (prevRect && prevRect.width > 0 && prevRect.height > 0) {
           const dx = prevRect.left - newRect.left;
           const dy = prevRect.top - newRect.top;
@@ -280,7 +316,7 @@ export default function App() {
                 },
               ],
               {
-                duration: 360,
+                duration: moveDuration,
                 easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
                 fill: 'none',
               }
@@ -303,7 +339,7 @@ export default function App() {
               { opacity: 1, transform: 'scale(1)' },
             ],
             {
-              duration: 300,
+              duration: enterDuration,
               easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
               fill: 'none',
             }
@@ -336,40 +372,35 @@ export default function App() {
     customization.panelGap,
     customization.splitRatioX,
     customization.splitRatioY,
+    customization.motionIntensity,
+    customization.tabBarPlacement,
+    activeWindowTab,
+    activeSecondaryTab,
     workspaceDims.width,
     workspaceDims.height,
   ]);
 
-  const accentConf = ACCENT_MAP[customization.accent] || ACCENT_MAP.sage;
-  const surface = getSurfacePalette(customization.bgGradient);
+  const accentConf = getAccentConfig(customization.accent, customization.customAccentHex);
+  const surface = getSurfacePalette(customization.bgGradient, customization.surfaceStyle);
   const gapClasses = getWorkspaceGapClass(customization.panelGap);
   const radiusClass = getPanelRadiusClass(customization.cornerRadius);
-  const activeModelInfo = getGeminiModel(geminiConfig?.model);
 
   const handleCustomizationChange = (updated: InterfaceCustomization) => {
-    setCustomization(updated);
-    saveCustomization(updated);
+    const synced: InterfaceCustomization = isSplitAlgorithm(updated.autoTilingAlgorithm)
+      ? { ...updated, lastSplitAlgorithm: updated.autoTilingAlgorithm }
+      : updated;
+    setCustomization(synced);
+    saveCustomization(synced);
   };
 
-  useEffect(() => {
-    if (
-      activeModelInfo.id !== 'gemini-4-hydrogen' &&
-      customization.reasoningLevel === 'xhigh'
-    ) {
-      const next = { ...customization, reasoningLevel: 'high' as const };
-      setCustomization(next);
-      saveCustomization(next);
-    }
-  }, [activeModelInfo.id, customization.reasoningLevel]);
-
-  const handleToggleAutoTiling = () => {
-    const nextAuto = !customization.autoTiling;
+  const handleSelectWindowMode = (alg: InterfaceCustomization['autoTilingAlgorithm']) => {
+    playSound('tab');
     handleCustomizationChange({
       ...customization,
-      autoTiling: nextAuto,
+      autoTiling: true,
       maximizedPanel: null,
-      splitRatioX: nextAuto && customization.autoTilingAutoRebalance ? customization.autoTilingMasterRatio : customization.splitRatioX,
-      splitRatioY: nextAuto && customization.autoTilingAutoRebalance ? 50 : customization.splitRatioY,
+      autoTilingAlgorithm: alg,
+      lastSplitAlgorithm: isSplitAlgorithm(alg) ? alg : customization.lastSplitAlgorithm,
     });
   };
 
@@ -381,6 +412,7 @@ export default function App() {
     setCode(cached || SUPPORTED_LANGUAGES[lang]?.defaultCode || '');
     setExecutionResult(null);
     setSocraticAnalysis(null);
+    setHydrogenReview(null);
     setEvaluationResult(null);
     setActiveChallenge(null);
     setSelectedFlag(LANGUAGE_RUNNER_OPTIONS[lang]?.[0]?.id || 'standard');
@@ -392,13 +424,35 @@ export default function App() {
 
   // Run Code (with stdin & compiler/runtime mode flags)
   const handleRunCode = async (overrideFlag?: string) => {
+    playSound('runStart');
     setIsRunning(true);
+    if (customization.autoFocusTerminalOnRun && customization.autoTiling) {
+      if (
+        (customization.autoTilingAlgorithm === 'stacked-windows' ||
+          customization.autoTilingAlgorithm === 'tabbed-windows') &&
+        !customization.hiddenPanels.includes('terminal')
+      ) {
+        setActiveWindowTab('terminal');
+      } else if (
+        customization.autoTilingAlgorithm === 'master-tabbed' &&
+        customization.panelOrder
+          .filter((id) => !customization.hiddenPanels.includes(id))
+          .slice(1)
+          .includes('terminal')
+      ) {
+        setActiveSecondaryTab('terminal');
+      }
+    }
     try {
       const res = await executeCode(code, activeLanguage, {
         stdin,
         flags: overrideFlag || selectedFlag,
       });
       setExecutionResult(res);
+      const passedCleanly = res.exitCode === 0 && (!res.stderr || !res.stderr.trim());
+      playSound(passedCleanly ? 'runPass' : 'runError');
+    } catch {
+      playSound('runError');
     } finally {
       setIsRunning(false);
     }
@@ -406,7 +460,25 @@ export default function App() {
 
   // Real-time Socratic Analysis
   const handleAnalyzeCode = async () => {
+    playSound('primary');
     setIsAnalyzing(true);
+    if (customization.autoTiling) {
+      if (
+        (customization.autoTilingAlgorithm === 'stacked-windows' ||
+          customization.autoTilingAlgorithm === 'tabbed-windows') &&
+        !customization.hiddenPanels.includes('tutor')
+      ) {
+        setActiveWindowTab('tutor');
+      } else if (
+        customization.autoTilingAlgorithm === 'master-tabbed' &&
+        customization.panelOrder
+          .filter((id) => !customization.hiddenPanels.includes(id))
+          .slice(1)
+          .includes('tutor')
+      ) {
+        setActiveSecondaryTab('tutor');
+      }
+    }
     try {
       const res = await fetch('/api/analyze-code', {
         method: 'POST',
@@ -425,29 +497,224 @@ export default function App() {
         const data = await res.json();
         if (data.analysis) {
           setSocraticAnalysis(data);
+          playSound(data.apiError ? 'runError' : 'tutorReceive');
           return;
         }
       }
-      throw new Error('Analysis fallback');
-    } catch {
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err: any) {
+      const apiError = {
+        status: 'NETWORK_ERROR',
+        message: err?.message || 'Unable to reach Gemini 4 Hydrogen backend.',
+      };
       setSocraticAnalysis({
-        analysis: `Reviewed ${code.split('\n').length} lines of ${activeLanguage}. Check how resources are initialized and cleaned up across scopes.`,
+        analysis: `Gemini 4 Hydrogen could not be reached (${apiError.message}). Check your connection or try again in a moment.`,
         probingQuestions: [
           `What assumptions does your code make about edge inputs?`,
           `How does ${activeLanguage} handle variable lifetimes in this snippet?`,
         ],
         conceptHighlight: `Explore variable scope and type guarantees in ${activeLanguage}.`,
         issuesDetected: [],
-        hints: ['Try running a couple of edge cases in the console to test your assumptions.'],
+        hints: ['You can still run your code in the Output Console while Gemini 4 Hydrogen reconnects.'],
         isOfflineFallback: true,
+        apiError,
       });
+      playSound('runError');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  // Helper: Replace exact first occurrence safely without regex replacement token side effects
+  const replaceExactOnce = (source: string, search: string, replacement: string): string | null => {
+    if (!search) return null;
+    const idx = source.indexOf(search);
+    if (idx === -1) return null;
+    return source.slice(0, idx) + replacement + source.slice(idx + search.length);
+  };
+
+  // Analyze Editor Code directly with Gemini 4 Hydrogen (3 concise bullets + selective real-time edits)
+  const handleAnalyzeWithHydrogen = async () => {
+    if (!code.trim()) return;
+    playSound('primary');
+    setIsHydrogenAnalyzing(true);
+    try {
+      const res = await fetch('/api/hydrogen-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          language: SUPPORTED_LANGUAGES[activeLanguage]?.name || activeLanguage,
+          reasoningLevel: customization.reasoningLevel,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHydrogenReview({
+          bullets: Array.isArray(data.bullets) ? data.bullets.slice(0, 3) : [],
+          edits: Array.isArray(data.edits)
+            ? data.edits.map((e: any) => ({ ...e, status: 'pending' }))
+            : [],
+          reviewedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sourceCodeSnapshot: code,
+          apiError: data.apiError,
+        });
+        playSound(data.apiError ? 'runError' : 'tutorReceive');
+        return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err: any) {
+      setHydrogenReview({
+        bullets: [],
+        edits: [],
+        reviewedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sourceCodeSnapshot: code,
+        apiError: {
+          status: 'NETWORK_ERROR',
+          message: err?.message || 'Unable to reach Gemini 4 Hydrogen analysis endpoint.',
+        },
+      });
+      playSound('runError');
+    } finally {
+      setIsHydrogenAnalyzing(false);
+    }
+  };
+
+  const handleApproveHydrogenEdit = (editId: string) => {
+    if (!hydrogenReview) return;
+    const targetEdit = hydrogenReview.edits.find((e) => e.id === editId);
+    if (!targetEdit || targetEdit.status !== 'pending') return;
+
+    const updatedCode = replaceExactOnce(
+      code,
+      targetEdit.targetSnippet,
+      targetEdit.replacementSnippet
+    );
+    if (updatedCode === null) {
+      playSound('runError');
+      return;
+    }
+
+    setCode(updatedCode);
+    saveCodeCache(activeLanguage, updatedCode);
+    setHydrogenReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            edits: prev.edits.map((e) => (e.id === editId ? { ...e, status: 'approved' } : e)),
+          }
+        : null
+    );
+    playSound('toggleOn');
+  };
+
+  const handleDenyHydrogenEdit = (editId: string) => {
+    setHydrogenReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            edits: prev.edits.map((e) => (e.id === editId ? { ...e, status: 'denied' } : e)),
+          }
+        : null
+    );
+    playSound('toggleOff');
+  };
+
+  const handleUndoHydrogenEdit = (editId: string) => {
+    if (!hydrogenReview) return;
+    const targetEdit = hydrogenReview.edits.find((e) => e.id === editId);
+    if (!targetEdit || targetEdit.status !== 'approved') return;
+
+    const revertedCode = replaceExactOnce(
+      code,
+      targetEdit.replacementSnippet,
+      targetEdit.targetSnippet
+    );
+    if (revertedCode === null) {
+      playSound('runError');
+      return;
+    }
+
+    setCode(revertedCode);
+    saveCodeCache(activeLanguage, revertedCode);
+    setHydrogenReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            edits: prev.edits.map((e) => (e.id === editId ? { ...e, status: 'pending' } : e)),
+          }
+        : null
+    );
+    playSound('reset');
+  };
+
+  const handleRestoreHydrogenEdit = (editId: string) => {
+    setHydrogenReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            edits: prev.edits.map((e) => (e.id === editId ? { ...e, status: 'pending' } : e)),
+          }
+        : null
+    );
+    playSound('click');
+  };
+
+  const handleApproveAllHydrogenEdits = () => {
+    if (!hydrogenReview) return;
+    let workingCode = code;
+    const appliedIds = new Set<string>();
+
+    for (const edit of hydrogenReview.edits) {
+      if (edit.status !== 'pending') continue;
+      const next = replaceExactOnce(workingCode, edit.targetSnippet, edit.replacementSnippet);
+      if (next !== null) {
+        workingCode = next;
+        appliedIds.add(edit.id);
+      }
+    }
+
+    if (appliedIds.size > 0) {
+      setCode(workingCode);
+      saveCodeCache(activeLanguage, workingCode);
+      setHydrogenReview((prev) =>
+        prev
+          ? {
+              ...prev,
+              edits: prev.edits.map((e) =>
+                appliedIds.has(e.id) ? { ...e, status: 'approved' } : e
+              ),
+            }
+          : null
+      );
+      playSound('select');
+    } else {
+      playSound('runError');
+    }
+  };
+
+  const handleDenyAllHydrogenEdits = () => {
+    setHydrogenReview((prev) =>
+      prev
+        ? {
+            ...prev,
+            edits: prev.edits.map((e) =>
+              e.status === 'pending' ? { ...e, status: 'denied' } : e
+            ),
+          }
+        : null
+    );
+    playSound('toggleOff');
+  };
+
+  const handleDismissHydrogenReview = () => {
+    setHydrogenReview(null);
+    playSound('modalClose');
+  };
+
   // Socratic Dialogue Message
   const handleSendTutorMessage = async (question: string) => {
+    playSound('tutorSend');
     const userMsg: TutorMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -476,21 +743,29 @@ export default function App() {
           id: `tutor-${Date.now()}`,
           role: 'tutor',
           text: data.answer || 'Let us trace how this piece behaves step by step.',
-          probingQuestion: data.probingQuestion,
+          probingQuestion: data.apiError ? undefined : data.probingQuestion,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          apiError: data.apiError,
         };
         setTutorMessages((prev) => [...prev, tutorMsg]);
+        playSound(data.apiError ? 'runError' : 'tutorReceive');
         return;
       }
-      throw new Error('Tutor fallback');
-    } catch {
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err: any) {
+      const apiError = {
+        status: 'NETWORK_ERROR',
+        message: err?.message || 'Unable to reach the Coding Mentor backend endpoint.',
+      };
       const tutorMsg: TutorMessage = {
         id: `tutor-${Date.now()}`,
         role: 'tutor',
-        text: `In ${activeLanguage}, look closely at the order of operations and how data is stored. Which step runs first?`,
+        text: `Gemini 4 Hydrogen could not answer right now: ${apiError.message}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        apiError,
       };
       setTutorMessages((prev) => [...prev, tutorMsg]);
+      playSound('runError');
     } finally {
       setIsSendingMessage(false);
     }
@@ -499,6 +774,7 @@ export default function App() {
   // Evaluate Active Challenge
   const handleEvaluateChallenge = async () => {
     if (!activeChallenge) return;
+    playSound('primary');
     setIsEvaluating(true);
     setEvaluationResult(null);
 
@@ -518,6 +794,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setEvaluationResult(data);
+        playSound(data.passed ? 'challengePass' : 'challengeAlmost');
 
         if (data.passed) {
           const updated = awardXP(
@@ -539,6 +816,7 @@ export default function App() {
         idiomaticScore: 90,
       };
       setEvaluationResult(fallbackResult);
+      playSound('challengePass');
       const updated = awardXP(activeLanguage, fallbackResult.xpEarned, activeChallenge.id);
       setProgress(updated);
     } finally {
@@ -554,6 +832,7 @@ export default function App() {
     const j = nextOrder.indexOf(targetId);
     if (i === -1 || j === -1) return;
     [nextOrder[i], nextOrder[j]] = [nextOrder[j], nextOrder[i]];
+    playSound('panelSwap');
     handleCustomizationChange({ ...customization, panelOrder: nextOrder });
   };
 
@@ -563,13 +842,16 @@ export default function App() {
     if (idx === -1) return;
     const nextIdx = (idx + 1) % nextOrder.length;
     [nextOrder[idx], nextOrder[nextIdx]] = [nextOrder[nextIdx], nextOrder[idx]];
+    playSound('panelSwap');
     handleCustomizationChange({ ...customization, panelOrder: nextOrder });
   };
 
   const handleToggleMaximize = (panelId: PanelId) => {
+    const willRestore = customization.maximizedPanel === panelId;
+    playSound(willRestore ? 'modalClose' : 'modalOpen');
     handleCustomizationChange({
       ...customization,
-      maximizedPanel: customization.maximizedPanel === panelId ? null : panelId,
+      maximizedPanel: willRestore ? null : panelId,
     });
   };
 
@@ -578,6 +860,7 @@ export default function App() {
       (id) => !customization.hiddenPanels.includes(id)
     ).length;
     if (visibleCount <= 1) return;
+    playSound('toggleOff');
     handleCustomizationChange({
       ...customization,
       hiddenPanels: [...customization.hiddenPanels, panelId],
@@ -587,6 +870,7 @@ export default function App() {
   };
 
   const handleRestorePanel = (panelId: PanelId) => {
+    playSound('toggleOn');
     handleCustomizationChange({
       ...customization,
       hiddenPanels: customization.hiddenPanels.filter((p) => p !== panelId),
@@ -670,6 +954,7 @@ export default function App() {
           onRun={() => handleRunCode()}
           onAnalyze={handleAnalyzeCode}
           onReset={() => {
+            setHydrogenReview(null);
             if (activeChallenge) {
               setCode(activeChallenge.starterCode);
             } else {
@@ -678,12 +963,30 @@ export default function App() {
           }}
           isRunning={isRunning}
           isAnalyzing={isAnalyzing}
+          hydrogenReview={hydrogenReview}
+          isHydrogenAnalyzing={isHydrogenAnalyzing}
+          onAnalyzeWithHydrogen={handleAnalyzeWithHydrogen}
+          onApproveHydrogenEdit={handleApproveHydrogenEdit}
+          onDenyHydrogenEdit={handleDenyHydrogenEdit}
+          onUndoHydrogenEdit={handleUndoHydrogenEdit}
+          onRestoreHydrogenEdit={handleRestoreHydrogenEdit}
+          onApproveAllHydrogenEdits={handleApproveAllHydrogenEdits}
+          onDenyAllHydrogenEdits={handleDenyAllHydrogenEdits}
+          onDismissHydrogenReview={handleDismissHydrogenReview}
           syntaxTheme={customization.syntaxTheme}
           accent={customization.accent}
+          customAccentHex={customization.customAccentHex}
           bgGradient={customization.bgGradient}
+          surfaceStyle={customization.surfaceStyle}
+          editorSurface={customization.editorSurface}
+          panelHeaderStyle={customization.panelHeaderStyle}
           cornerRadius={customization.cornerRadius}
           editorFontSize={customization.editorFontSize}
+          editorLineHeight={customization.editorLineHeight}
+          editorTabSize={customization.editorTabSize}
           showLineNumbers={customization.showLineNumbers}
+          wordWrap={customization.wordWrap}
+          showStatusBar={customization.showStatusBar}
           isMaximized={isMaximized}
           onToggleMaximize={() => handleToggleMaximize('editor')}
           onCyclePosition={() => handleCyclePanelPosition('editor')}
@@ -698,8 +1001,13 @@ export default function App() {
           isRunning={isRunning}
           onClear={() => setExecutionResult(null)}
           language={activeLanguage}
+          currentCode={code}
           accent={customization.accent}
+          customAccentHex={customization.customAccentHex}
           bgGradient={customization.bgGradient}
+          surfaceStyle={customization.surfaceStyle}
+          editorSurface={customization.editorSurface}
+          panelHeaderStyle={customization.panelHeaderStyle}
           cornerRadius={customization.cornerRadius}
           stdin={stdin}
           onStdinChange={setStdin}
@@ -725,15 +1033,15 @@ export default function App() {
           onSendMessage={handleSendTutorMessage}
           isSendingMessage={isSendingMessage}
           accent={customization.accent}
+          customAccentHex={customization.customAccentHex}
           bgGradient={customization.bgGradient}
+          surfaceStyle={customization.surfaceStyle}
+          panelHeaderStyle={customization.panelHeaderStyle}
           cornerRadius={customization.cornerRadius}
           reasoningLevel={customization.reasoningLevel}
           onReasoningLevelChange={(level) =>
             handleCustomizationChange({ ...customization, reasoningLevel: level })
           }
-          geminiModelName={activeModelInfo.shortName}
-          onSelectModel={openGeminiSetup}
-          supportsXHigh={activeModelInfo.id === 'gemini-4-hydrogen'}
           isMaximized={isMaximized}
           onToggleMaximize={() => handleToggleMaximize('tutor')}
           onCyclePosition={() => handleCyclePanelPosition('tutor')}
@@ -816,8 +1124,287 @@ export default function App() {
     </div>
   );
 
+  const getPanelSummaryLabel = (panelId: PanelId): string => {
+    if (panelId === 'editor') {
+      const lineCount = code.split('\n').length;
+      return `main${SUPPORTED_LANGUAGES[activeLanguage]?.extension || ''} · ${lineCount} lines`;
+    }
+    if (panelId === 'terminal') {
+      if (isRunning) return 'Running...';
+      if (executionResult) {
+        return executionResult.exitCode === 0
+          ? `exit 0 · ${executionResult.durationMs}ms`
+          : `exit ${executionResult.exitCode}`;
+      }
+      return 'Ready';
+    }
+    return isAnalyzing ? 'Reviewing...' : 'Gemini 4 Hydrogen';
+  };
+
+  const renderTabbedContainer = (
+    panels: PanelId[],
+    focusedId: PanelId,
+    onSelect: (id: PanelId) => void,
+    isMasterSecondary = false
+  ) => {
+    const activePanel = panels.includes(focusedId) ? focusedId : panels[0];
+    const isBottom = customization.tabBarPlacement === 'bottom';
+    const isRich = customization.tabBarDensity === 'rich';
+
+    return (
+      <div
+        className={`hidden md:flex ${
+          isBottom ? 'flex-col-reverse' : 'flex-col'
+        } flex-1 h-full w-full overflow-hidden gap-2`}
+      >
+        {/* Tab Strip */}
+        <div
+          className={`shrink-0 px-2 py-1.5 ${radiusClass} border ${surface.border} ${surface.cardMuted} flex items-center justify-between gap-2 overflow-x-auto no-scrollbar`}
+        >
+          <div className="flex items-center gap-1 min-w-0">
+            {panels.map((pid) => {
+              const Icon = PANEL_ICONS[pid];
+              const isActive = activePanel === pid;
+              const isDragTarget = dragOverPanel === pid && draggedPanel && draggedPanel !== pid;
+              return (
+                <div
+                  key={pid}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggedPanel(pid);
+                    e.dataTransfer.setData('text/plain', pid);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e) => {
+                    if (draggedPanel && draggedPanel !== pid) {
+                      e.preventDefault();
+                      setDragOverPanel(pid);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverPanel === pid) setDragOverPanel(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedPanel(null);
+                    setDragOverPanel(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const source = (e.dataTransfer.getData('text/plain') as PanelId) || draggedPanel;
+                    if (source && source !== pid) {
+                      handleSwapPanels(source, pid);
+                    }
+                    setDraggedPanel(null);
+                    setDragOverPanel(null);
+                  }}
+                  className={`flex items-center rounded-xl border transition-all shrink-0 ${
+                    isActive
+                      ? `${surface.card} ${accentConf.border} shadow-xs`
+                      : `border-transparent ${surface.hoverBg}`
+                  } ${isDragTarget ? `ring-2 ${accentConf.border}` : ''}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playSound('tab');
+                      onSelect(pid);
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1 text-xs whitespace-nowrap ${
+                      isActive ? `font-semibold ${surface.text}` : `${surface.textMuted}`
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? accentConf.text : ''}`} />
+                    <span>{PANEL_NAMES[pid]}</span>
+                    {isRich && (
+                      <>
+                        <span className={surface.textSubtle} aria-hidden="true">·</span>
+                        <span className={`text-[11px] font-normal ${surface.textSubtle}`}>
+                          {getPanelSummaryLabel(pid)}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  {panels.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleHidePanel(pid)}
+                      title={`Hide ${PANEL_NAMES[pid]}`}
+                      className={`p-1 mr-1 rounded-lg ${surface.textSubtle} ${surface.hoverBg} transition-colors`}
+                    >
+                      <EyeOff className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {isMasterSecondary && panels.length > 1 && (
+              <button
+                type="button"
+                onClick={() => handleSelectWindowMode('tabbed-windows')}
+                title="Combine all windows into tabs"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} text-[11px] font-medium whitespace-nowrap`}
+              >
+                <FolderKanban className="w-3 h-3" />
+                <span className="hidden xl:inline">Tab All</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleSelectWindowMode(customization.lastSplitAlgorithm || 'smart-bsp')}
+              title="Return to split window tiling"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} text-[11px] font-medium whitespace-nowrap`}
+            >
+              <Columns2 className={`w-3 h-3 ${accentConf.text}`} />
+              <span>Split View</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Active Tabbed Window */}
+        <div className="flex-1 min-h-0 w-full overflow-hidden">
+          {renderPanelSlot(activePanel)}
+        </div>
+      </div>
+    );
+  };
+
+  const renderStackedContainer = (panels: PanelId[]) => {
+    const activePanel = panels.includes(activeWindowTab) ? activeWindowTab : panels[0];
+    const isRich = customization.tabBarDensity === 'rich';
+
+    return (
+      <div className="hidden md:flex flex-col flex-1 h-full w-full overflow-hidden gap-2">
+        {/* Stacked Window Title Bars */}
+        <div
+          className={`shrink-0 ${radiusClass} border ${surface.border} ${surface.card} overflow-hidden divide-y ${surface.border} shadow-xs`}
+        >
+          {panels.map((pid, idx) => {
+            const Icon = PANEL_ICONS[pid];
+            const isActive = activePanel === pid;
+            const isDragTarget = dragOverPanel === pid && draggedPanel && draggedPanel !== pid;
+            return (
+              <div
+                key={pid}
+                draggable
+                onDragStart={(e) => {
+                  setDraggedPanel(pid);
+                  e.dataTransfer.setData('text/plain', pid);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragOver={(e) => {
+                  if (draggedPanel && draggedPanel !== pid) {
+                    e.preventDefault();
+                    setDragOverPanel(pid);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverPanel === pid) setDragOverPanel(null);
+                }}
+                onDragEnd={() => {
+                  setDraggedPanel(null);
+                  setDragOverPanel(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const source = (e.dataTransfer.getData('text/plain') as PanelId) || draggedPanel;
+                  if (source && source !== pid) {
+                    handleSwapPanels(source, pid);
+                  }
+                  setDraggedPanel(null);
+                  setDragOverPanel(null);
+                }}
+                className={`flex items-center justify-between px-3 py-1.5 transition-colors ${
+                  isActive ? accentConf.bgSubtle : `${surface.cardMuted} ${surface.hoverBg}`
+                } ${isDragTarget ? `ring-2 ring-inset ${accentConf.border}` : ''}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSound('tab');
+                    setActiveWindowTab(pid);
+                  }}
+                  className="flex-1 flex items-center gap-2.5 text-left min-w-0 py-0.5"
+                >
+                  <GripVertical className={`w-3.5 h-3.5 ${surface.textSubtle} cursor-grab shrink-0`} />
+                  <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? accentConf.text : surface.textMuted}`} />
+                  <span
+                    className={`text-xs truncate whitespace-nowrap ${
+                      isActive ? `font-semibold ${surface.text}` : `font-medium ${surface.textMuted}`
+                    }`}
+                  >
+                    {PANEL_NAMES[pid]}
+                  </span>
+                  {isRich && (
+                    <>
+                      <span className={surface.textSubtle} aria-hidden="true">·</span>
+                      <span className={`text-[11px] truncate ${surface.textSubtle}`}>
+                        {getPanelSummaryLabel(pid)}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  {idx === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectWindowMode(customization.lastSplitAlgorithm || 'smart-bsp')}
+                      title="Return to split window tiling"
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} text-[11px] font-medium whitespace-nowrap`}
+                    >
+                      <Columns2 className={`w-3 h-3 ${accentConf.text}`} />
+                      <span>Split View</span>
+                    </button>
+                  )}
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playSound('tab');
+                        setActiveWindowTab(pid);
+                      }}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-medium ${accentConf.text} hover:underline whitespace-nowrap`}
+                    >
+                      Focus
+                    </button>
+                  )}
+                  {panels.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleHidePanel(pid)}
+                      title={`Hide ${PANEL_NAMES[pid]}`}
+                      className={`p-1 rounded-lg ${surface.textSubtle} ${surface.hoverBg}`}
+                    >
+                      <EyeOff className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Active Expanded Window */}
+        <div className="flex-1 min-h-0 w-full overflow-hidden">
+          {renderPanelSlot(activePanel)}
+        </div>
+      </div>
+    );
+  };
+
   // Automatic Window Tiling Renderer
   const renderAutoTiledWorkspace = (openPanels: PanelId[]) => {
+    if (customization.autoTilingAlgorithm === 'stacked-windows') {
+      return renderStackedContainer(openPanels);
+    }
+
+    if (customization.autoTilingAlgorithm === 'tabbed-windows') {
+      return renderTabbedContainer(openPanels, activeWindowTab, setActiveWindowTab, false);
+    }
+
     if (openPanels.length === 1) {
       return (
         <div className="hidden md:flex flex-1 h-full w-full overflow-hidden">
@@ -832,6 +1419,35 @@ export default function App() {
 
     const masterPct = customization.autoTilingMasterRatio || 56;
     const twoPanePct = customization.autoTilingAutoRebalance ? 50 : masterPct;
+
+    if (customization.autoTilingAlgorithm === 'master-tabbed') {
+      const secondaryPanels = openPanels.slice(1);
+      if (preferVertical) {
+        return (
+          <div className="hidden md:flex flex-col flex-1 h-full w-full overflow-hidden">
+            <div style={{ height: `${masterPct}%` }} className="w-full min-h-[180px] overflow-hidden">
+              {renderPanelSlot(openPanels[0])}
+            </div>
+            {renderVerticalResizer(false)}
+            <div className="flex-1 w-full min-h-[160px] overflow-hidden flex">
+              {renderTabbedContainer(secondaryPanels, activeSecondaryTab, setActiveSecondaryTab, true)}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="hidden md:flex flex-row flex-1 h-full w-full overflow-hidden">
+          <div style={{ width: `${masterPct}%` }} className="h-full min-w-[260px] overflow-hidden">
+            {renderPanelSlot(openPanels[0])}
+          </div>
+          {renderHorizontalResizer(false)}
+          <div className="flex-1 h-full min-w-[260px] overflow-hidden flex">
+            {renderTabbedContainer(secondaryPanels, activeSecondaryTab, setActiveSecondaryTab, true)}
+          </div>
+        </div>
+      );
+    }
 
     if (openPanels.length === 2) {
       const stackVertical =
@@ -1178,7 +1794,10 @@ export default function App() {
       >
         <button
           type="button"
-          onClick={() => setShowChallengeModal(true)}
+          onClick={() => {
+            playSound('modalOpen');
+            setShowChallengeModal(true);
+          }}
           title="Lessons & Practice"
           className={`${
             isVerticalNav ? 'w-full py-2.5 flex-col gap-1 text-[10px]' : 'px-3 py-2 gap-2'
@@ -1190,7 +1809,10 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setShowSkillModal(true)}
+          onClick={() => {
+            playSound('modalOpen');
+            setShowSkillModal(true);
+          }}
           title="My Progress"
           className={`${
             isVerticalNav ? 'w-full py-2.5 flex-col gap-1 text-[10px]' : 'px-3 py-2 gap-2'
@@ -1208,7 +1830,10 @@ export default function App() {
           <div className={`flex md:hidden items-center p-0.5 rounded-xl border ${surface.border} ${surface.chipBg} mr-1`}>
             <button
               type="button"
-              onClick={() => setMobileTab('editor')}
+              onClick={() => {
+                playSound('tab');
+                setMobileTab('editor');
+              }}
               className={`p-1.5 rounded-lg ${
                 mobileTab === 'editor' ? `${surface.card} ${surface.text} shadow-xs` : surface.textMuted
               }`}
@@ -1218,7 +1843,10 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setMobileTab('terminal')}
+              onClick={() => {
+                playSound('tab');
+                setMobileTab('terminal');
+              }}
               className={`p-1.5 rounded-lg ${
                 mobileTab === 'terminal' ? `${surface.card} ${surface.text} shadow-xs` : surface.textMuted
               }`}
@@ -1228,7 +1856,10 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setMobileTab('tutor')}
+              onClick={() => {
+                playSound('tab');
+                setMobileTab('tutor');
+              }}
               className={`p-1.5 rounded-lg ${
                 mobileTab === 'tutor' ? `${surface.card} ${surface.text} shadow-xs` : surface.textMuted
               }`}
@@ -1241,87 +1872,70 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setShowChallengeModal(true)}
+          onClick={() => {
+            playSound('modalOpen');
+            setShowChallengeModal(true);
+          }}
           className={`md:hidden p-2 rounded-xl border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg}`}
           title="Lessons & Practice"
         >
           <BookOpen className="w-4 h-4" />
         </button>
 
+        {/* Unified Window Tiling Dropdown (Tiled, Stacked, Master + Tabs, Tabs & Split Style) */}
+        <TilingDropdown
+          customization={customization}
+          onChange={handleCustomizationChange}
+          onOpenLayoutStudio={() => {
+            setSettingsInitialTab('workspace');
+            setShowSettingsModal(true);
+          }}
+        />
+
         <button
           type="button"
-          onClick={handleToggleAutoTiling}
-          title={
-            customization.autoTiling
-              ? `Auto-Tiling ON (${customization.autoTilingAlgorithm}) — click to disable`
-              : 'Auto-Tiling OFF — click to automatically tile open windows'
-          }
-          className={`hidden md:inline-flex items-center justify-center gap-1.5 ${
-            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-3 py-1.5 text-xs'
-          } rounded-xl border transition-colors font-medium ${
-            customization.autoTiling
+          onClick={() => {
+            const nextOpen = !showReasoningPopover;
+            playSound(nextOpen ? 'dropdownOpen' : 'dropdownClose');
+            setShowReasoningPopover(nextOpen);
+          }}
+          aria-expanded={showReasoningPopover}
+          title={`AI Reasoning Effort: ${getReasoningTierMeta(customization.reasoningLevel).label} — click to adjust anywhere in the app`}
+          className={`inline-flex items-center justify-center gap-1.5 ${
+            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-2.5 py-1.5 text-xs'
+          } rounded-xl border transition-colors font-medium whitespace-nowrap shrink-0 ${
+            showReasoningPopover
               ? `${accentConf.bgSubtle} ${accentConf.border} ${accentConf.text}`
               : `${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg}`
           }`}
         >
-          <LayoutGrid className="w-3.5 h-3.5" />
-          <span className={isVerticalNav ? 'text-[10px]' : 'hidden lg:inline'}>
-            {customization.autoTiling ? 'Auto-Tile: On' : 'Auto-Tile: Off'}
+          <Brain className={`w-3.5 h-3.5 ${accentConf.text} shrink-0`} />
+          <span className={isVerticalNav ? 'text-[10px]' : 'hidden sm:inline'}>
+            {isVerticalNav
+              ? getReasoningTierMeta(customization.reasoningLevel).shortLabel
+              : `Reasoning: ${getReasoningTierMeta(customization.reasoningLevel).shortLabel}`}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={openGeminiSetup}
-          title={
-            geminiConfig?.hasKey
-              ? `Gemini model: ${activeModelInfo.name} — click to change`
-              : 'Connect your Gemini API key'
-          }
+          onClick={() => {
+            playSound('modalOpen');
+            setSettingsInitialTab('general');
+            setShowSettingsModal(true);
+          }}
+          title="Settings — Sound, Themes, Layout & Profile"
+          aria-label="Settings"
           className={`inline-flex items-center justify-center gap-1.5 ${
-            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-3 py-1.5 text-xs'
-          } rounded-xl border transition-colors font-medium ${
-            geminiConfig?.hasKey
-              ? `${surface.border} ${surface.card} ${surface.textMuted}`
-              : `${accentConf.border} ${accentConf.bgSubtle} ${accentConf.text}`
-          } ${surface.hoverBg}`}
+            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-2.5 py-1.5 text-xs'
+          } rounded-xl border ${
+            showSettingsModal
+              ? `${accentConf.bgSubtle} ${accentConf.border} ${accentConf.text}`
+              : `${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg}`
+          } transition-colors font-medium whitespace-nowrap shrink-0`}
         >
-          <Sparkles className={`w-4 h-4 ${accentConf.text}`} />
-          <span className={isVerticalNav ? 'text-[10px]' : 'hidden lg:inline'}>
-            {geminiConfig?.hasKey ? activeModelInfo.shortName : 'Connect AI'}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowThemeModal(true)}
-          title="Workspace Layout & Theme Studio"
-          className={`inline-flex items-center justify-center gap-1.5 ${
-            isVerticalNav ? 'w-full py-2 flex-col text-[10px]' : 'px-3 py-1.5 text-xs'
-          } rounded-xl border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} transition-colors font-medium`}
-        >
-          {isVerticalNav ? (
-            <>
-              <Layout className={`w-4 h-4 ${accentConf.text}`} />
-              <span>Studio</span>
-            </>
-          ) : (
-            <>
-              <Palette className={`w-4 h-4 ${accentConf.text}`} />
-              <span className="hidden lg:inline">Layout &amp; Themes</span>
-            </>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowOnboarding(true)}
-          title="Learning Profile"
-          className={`${
-            isVerticalNav ? 'w-full py-2 flex justify-center' : 'p-2'
-          } rounded-xl border ${surface.border} ${surface.card} ${surface.textMuted} ${surface.hoverBg} transition-colors`}
-        >
-          <Settings className="w-4 h-4" />
+          <Settings className={`w-4 h-4 ${showSettingsModal ? accentConf.text : ''} shrink-0`} />
+          <span className={isVerticalNav ? 'text-[10px]' : 'hidden lg:inline'}>Settings</span>
         </button>
       </div>
     </header>
@@ -1460,37 +2074,17 @@ export default function App() {
 
   return (
     <div
-      style={getBackgroundStyle(customization.bgGradient, customization.accent)}
+      style={getBackgroundStyle(
+        customization.bgGradient,
+        customization.accent,
+        customization.showAmbientGlow
+      )}
       className={`flex ${shellFlexClass} h-screen w-screen ${surface.text} font-sans overflow-hidden transition-colors duration-200`}
     >
-      {/* Secure Gemini setup gate */}
-      {!geminiConfigLoaded && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 backdrop-blur-sm font-sans">
-          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl border ${surface.borderStrong} ${surface.modalBg} shadow-xl`}>
-            <Loader2 className={`w-4 h-4 animate-spin ${accentConf.text}`} />
-            <span className={`text-xs font-medium ${surface.textMuted}`}>
-              Checking secure Gemini settings…
-            </span>
-          </div>
-        </div>
-      )}
-
-      <GeminiSetupModal
-        isOpen={showGeminiSetup}
-        mode={geminiSetupMode}
-        config={geminiConfig}
-        onSaved={handleGeminiSaved}
-        onSkip={geminiSetupMode === 'initial' ? handleGeminiSkip : undefined}
-        onClose={geminiSetupMode === 'manage' ? () => setShowGeminiSetup(false) : undefined}
-        accent={customization.accent}
-        bgGradient={customization.bgGradient}
-        cornerRadius={customization.cornerRadius}
-      />
-
       {/* Onboarding Questionnaire Modal */}
       <OnboardingModal
         initialProfile={profile}
-        isOpen={showOnboarding && !showGeminiSetup}
+        isOpen={showOnboarding}
         onComplete={(p) => {
           setProfile(p);
           saveUserProfile(p);
@@ -1499,7 +2093,14 @@ export default function App() {
             handleLanguageChange(p.activeLanguage);
           }
         }}
-        onClose={profile.isOnboarded ? () => setShowOnboarding(false) : undefined}
+        onClose={
+          profile.isOnboarded
+            ? () => {
+                playSound('modalClose');
+                setShowOnboarding(false);
+              }
+            : undefined
+        }
         accent={customization.accent}
         bgGradient={customization.bgGradient}
       />
@@ -1507,7 +2108,10 @@ export default function App() {
       {/* Curriculum & Challenges Modal */}
       <ChallengeModal
         isOpen={showChallengeModal}
-        onClose={() => setShowChallengeModal(false)}
+        onClose={() => {
+          playSound('modalClose');
+          setShowChallengeModal(false);
+        }}
         language={activeLanguage}
         profile={profile}
         completedIds={progress.completedChallenges}
@@ -1531,13 +2135,24 @@ export default function App() {
         bgGradient={customization.bgGradient}
       />
 
-      {/* Workspace Layout & Theme Studio Modal */}
-      <ThemeCustomizerModal
-        isOpen={showThemeModal}
-        onClose={() => setShowThemeModal(false)}
+      {/* Unified Dedicated Settings Menu (General & Sound, Themes & Colors, Layout & Windows, Editor & Motion) */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        initialTab={settingsInitialTab}
+        onClose={() => {
+          playSound('modalClose');
+          setShowSettingsModal(false);
+        }}
         customization={customization}
         onChange={handleCustomizationChange}
-        supportsXHigh={activeModelInfo.id === 'gemini-4-hydrogen'}
+        profile={profile}
+        onUpdateProfile={(updated) => {
+          setProfile(updated);
+          saveUserProfile(updated);
+          if (updated.activeLanguage !== activeLanguage) {
+            handleLanguageChange(updated.activeLanguage);
+          }
+        }}
       />
 
       {/* Skill Matrix Modal */}
@@ -1552,12 +2167,74 @@ export default function App() {
                 handleLanguageChange(lang);
                 setShowSkillModal(false);
               }}
-              onClose={() => setShowSkillModal(false)}
+              onClose={() => {
+                playSound('modalClose');
+                setShowSkillModal(false);
+              }}
               accent={customization.accent}
               bgGradient={customization.bgGradient}
             />
           </div>
         </div>
+      )}
+
+      {/* Global AI Reasoning Effort Popover (Accessible Anywhere in the App) */}
+      {showReasoningPopover && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              playSound('dropdownClose');
+              setShowReasoningPopover(false);
+            }}
+          />
+          <div
+            role="dialog"
+            aria-label="AI Reasoning Effort"
+            className={`zenith-dropdown-menu fixed z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border ${surface.borderStrong} ${surface.modalBg} shadow-2xl p-4 space-y-3 ${
+              customization.navPlacement === 'bottom'
+                ? 'bottom-16 right-4'
+                : customization.navPlacement === 'left'
+                ? 'bottom-4 left-24'
+                : customization.navPlacement === 'right'
+                ? 'bottom-4 right-24'
+                : 'top-16 right-4'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className={`text-[11px] font-medium ${surface.textSubtle}`}>
+                Gemini 4 Hydrogen · Global AI Depth
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  playSound('dropdownClose');
+                  setShowReasoningPopover(false);
+                }}
+                aria-label="Close reasoning slider"
+                className={`p-1 rounded-lg ${surface.textSubtle} ${surface.hoverBg}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <ReasoningEffortSlider
+              value={customization.reasoningLevel}
+              onChange={(level) =>
+                handleCustomizationChange({ ...customization, reasoningLevel: level })
+              }
+              variant="full"
+              accent={customization.accent}
+              customAccentHex={customization.customAccentHex}
+              bgGradient={customization.bgGradient}
+              surfaceStyle={customization.surfaceStyle}
+            />
+
+            <div className={`pt-2 border-t ${surface.border} text-[11px] ${surface.textSubtle}`}>
+              Applies to Coding Mentor, Analyze with Hydrogen, and Challenges.
+            </div>
+          </div>
+        </>
       )}
 
       {/* Docked Navigation Bar */}

@@ -498,6 +498,54 @@ export function highlightTokensToHtml(
         }
       }
 
+      if (syntaxTheme === 'coastal-calm') {
+        switch (token.type) {
+          case 'keyword':
+            return `<span style="color:#85b6c4;font-weight:600;">${escaped}</span>`;
+          case 'type':
+            return `<span style="color:#a7c9b8;font-weight:500;">${escaped}</span>`;
+          case 'function':
+            return `<span style="color:#e0c387;font-weight:500;">${escaped}</span>`;
+          case 'string':
+            return `<span style="color:#9fc59b;font-style:italic;">${escaped}</span>`;
+          case 'number':
+            return `<span style="color:#d9a982;">${escaped}</span>`;
+          case 'comment':
+            return `<span style="color:#7e8c91;font-style:italic;">${escaped}</span>`;
+          case 'annotation':
+          case 'preprocessor':
+            return `<span style="color:#b8afd1;font-weight:600;">${escaped}</span>`;
+          case 'operator':
+            return `<span style="color:#9bb2ba;">${escaped}</span>`;
+          default:
+            return `<span style="color:#e9eef0;">${escaped}</span>`;
+        }
+      }
+
+      if (syntaxTheme === 'nordic-moss') {
+        switch (token.type) {
+          case 'keyword':
+            return `<span style="color:#c98f79;font-weight:600;">${escaped}</span>`;
+          case 'type':
+            return `<span style="color:#8fb89d;font-weight:500;">${escaped}</span>`;
+          case 'function':
+            return `<span style="color:#d9bf82;font-weight:500;">${escaped}</span>`;
+          case 'string':
+            return `<span style="color:#a9bf82;font-style:italic;">${escaped}</span>`;
+          case 'number':
+            return `<span style="color:#d69e6e;">${escaped}</span>`;
+          case 'comment':
+            return `<span style="color:#7c857d;font-style:italic;">${escaped}</span>`;
+          case 'annotation':
+          case 'preprocessor':
+            return `<span style="color:#b6a69c;font-weight:600;">${escaped}</span>`;
+          case 'operator':
+            return `<span style="color:#a7b5aa;">${escaped}</span>`;
+          default:
+            return `<span style="color:#ebebe3;">${escaped}</span>`;
+        }
+      }
+
       // Default: Warm Botanical - Earthy, natural, non-neon tokens
       switch (token.type) {
         case 'keyword':

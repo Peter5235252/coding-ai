@@ -11,6 +11,7 @@ import {
 import { CURRICULUM_LESSONS } from '../data/curriculumData';
 import { SUPPORTED_LANGUAGES } from '../utils/languageData';
 import { ACCENT_MAP, getSurfacePalette } from '../utils/themeData';
+import { playSound } from '../utils/soundEngine';
 import { Sparkles, BookOpen, CheckCircle2, ArrowRight, X, AlertCircle } from 'lucide-react';
 
 interface ChallengeModalProps {
@@ -68,15 +69,18 @@ export const ChallengeModal: React.FC<ChallengeModalProps> = ({
       });
       const data = await res.json();
       if (data.challenge) {
+        playSound('select');
         onSelectAdaptiveChallenge({
           ...data.challenge,
           language,
         });
         onClose();
       } else {
+        playSound('runError');
         setAdaptiveError('Could not generate a custom challenge right now. Please try a curated lesson.');
       }
     } catch (err: any) {
+      playSound('runError');
       setAdaptiveError(err?.message || 'Unable to reach challenge generator.');
     } finally {
       setIsGenerating(false);
@@ -115,7 +119,10 @@ export const ChallengeModal: React.FC<ChallengeModalProps> = ({
           <div className={`inline-flex p-1 rounded-xl ${surface.chipBg}`}>
             <button
               type="button"
-              onClick={() => setActiveTab('curriculum')}
+              onClick={() => {
+                playSound('tab');
+                setActiveTab('curriculum');
+              }}
               className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === 'curriculum'
                   ? `${surface.card} ${surface.text} shadow-xs`
@@ -128,7 +135,10 @@ export const ChallengeModal: React.FC<ChallengeModalProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('adaptive')}
+              onClick={() => {
+                playSound('tab');
+                setActiveTab('adaptive');
+              }}
               className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === 'adaptive'
                   ? `${surface.card} ${surface.text} shadow-xs`
@@ -194,6 +204,7 @@ export const ChallengeModal: React.FC<ChallengeModalProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              playSound('select');
                               onSelectLesson(lesson);
                               onClose();
                             }}

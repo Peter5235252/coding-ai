@@ -3,6 +3,7 @@ import { AccentColor, BackgroundGradientStyle, ProgressState, SupportedLanguage,
 import { SUPPORTED_LANGUAGES } from '../utils/languageData';
 import { getMasteryTitle } from '../utils/storage';
 import { ACCENT_MAP, getSurfacePalette } from '../utils/themeData';
+import { playSound } from '../utils/soundEngine';
 import { Award, Flame, CheckCircle2, BarChart3, Target, X } from 'lucide-react';
 
 interface SkillMatrixProps {
@@ -132,7 +133,10 @@ export const SkillMatrix: React.FC<SkillMatrixProps> = ({
               <button
                 key={lang}
                 type="button"
-                onClick={() => onSelectLanguage(lang)}
+                onClick={() => {
+                  playSound('select');
+                  onSelectLanguage(lang);
+                }}
                 style={{ animationDelay: `${Math.min(idx, 10) * 28}ms` }}
                 className={`zenith-item-reveal zenith-card-hover p-3 text-left rounded-2xl border ${
                   isSelected

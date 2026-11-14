@@ -3,13 +3,17 @@ import {
   AccentColor,
   BackgroundGradientStyle,
   CornerRadiusStyle,
+  PanelHeaderStyle,
   ReasoningLevel,
   SocraticAnalysis,
+  SurfaceStyle,
   SupportedLanguage,
   TutorMessage,
 } from '../types';
-import { ACCENT_MAP, getPanelRadiusClass, getSurfacePalette } from '../utils/themeData';
+import { getAccentConfig, getPanelRadiusClass, getSurfacePalette } from '../utils/themeData';
 import { PanelControls } from './PanelControls';
+import { ReasoningEffortSlider } from './ReasoningEffortSlider';
+import { playSound } from '../utils/soundEngine';
 import { Sparkles, Send, ChevronRight, HelpCircle, AlertCircle, BookOpen, MessageCircle } from 'lucide-react';
 
 interface TutorPanelProps {
@@ -22,13 +26,13 @@ interface TutorPanelProps {
   onSendMessage: (question: string) => Promise<void>;
   isSendingMessage: boolean;
   accent?: AccentColor;
+  customAccentHex?: string;
   bgGradient?: BackgroundGradientStyle;
+  surfaceStyle?: SurfaceStyle;
+  panelHeaderStyle?: PanelHeaderStyle;
   cornerRadius?: CornerRadiusStyle;
   reasoningLevel: ReasoningLevel;
   onReasoningLevelChange: (level: ReasoningLevel) => void;
-  geminiModelName?: string;
-  onSelectModel?: () => void;
-  supportsXHigh?: boolean;
   onClearMessages?: () => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
@@ -46,41 +50,26 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
   onSendMessage,
   isSendingMessage,
   accent = 'sage',
+  customAccentHex,
   bgGradient = 'warm-linen',
+  surfaceStyle = 'crisp',
+  panelHeaderStyle = 'detailed',
   cornerRadius = 'rounded',
   reasoningLevel,
   onReasoningLevelChange,
-  geminiModelName = 'Gemini 4 Hydrogen',
-  onSelectModel,
-  supportsXHigh = true,
   isMaximized = false,
   onToggleMaximize,
   onCyclePosition,
   onHidePanel,
   onDragStartPanel,
 }) => {
-  const accentConf = ACCENT_MAP[accent] || ACCENT_MAP.sage;
-  const surface = getSurfacePalette(bgGradient);
+  const accentConf = getAccentConfig(accent, customAccentHex);
+  const surface = getSurfacePalette(bgGradient, surfaceStyle);
   const radiusClass = getPanelRadiusClass(cornerRadius);
 
   const [inputVal, setInputVal] = useState('');
   const [showHint, setShowHint] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const reasoningLevels = [
-    { id: 'low' as const, label: 'Low', title: 'Low (Quick)' },
-    { id: 'medium' as const, label: 'Med', title: 'Medium (Balanced)' },
-    { id: 'high' as const, label: 'High', title: 'High (Deep)' },
-    ...(supportsXHigh
-      ? [
-          {
-            id: 'xhigh' as const,
-            label: 'Extra High',
-            title: 'Extra High (Maximum depth on Gemini 4 Hydrogen)',
-          },
-        ]
-      : []),
-  ];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -107,56 +96,48 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
       <div
         draggable={!!onDragStartPanel}
         onDragStart={onDragStartPanel}
-        className={`px-3.5 py-2 border-b ${surface.border} ${surface.cardMuted} flex items-center justify-between gap-2 shrink-0 flex-wrap`}
+        className={`${
+          panelHeaderStyle === 'minimal'
+            ? 'px-3 py-1.5'
+            : panelHeaderStyle === 'compact'
+            ? 'px-3.5 py-1.5'
+            : 'px-3.5 py-2'
+        } border-b ${surface.border} ${surface.cardMuted} flex items-center justify-between gap-2 shrink-0 flex-wrap`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${accentConf.bgSubtle} ${accentConf.text}`}>
-            <MessageCircle className="w-4 h-4" />
-          </div>
+          {panelHeaderStyle !== 'minimal' && (
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${accentConf.bgSubtle} ${accentConf.text}`}>
+              <MessageCircle className="w-4 h-4" />
+            </div>
+          )}
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className={`font-semibold text-xs ${surface.text} leading-tight truncate`}>
                 Coding Mentor
               </span>
-              <button
-                type="button"
-                onClick={onSelectModel}
-                disabled={!onSelectModel}
-                title={onSelectModel ? 'Change Gemini model or API key' : geminiModelName}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${surface.border} ${surface.chipBg} ${surface.textSubtle} text-[10px] font-medium leading-none shrink-0 hover:opacity-85 disabled:cursor-default`}
-              >
-                <Sparkles className="w-2.5 h-2.5" />
-                {geminiModelName}
-              </button>
+              <span className={`px-1.5 py-0.5 rounded-md border ${surface.border} ${surface.chipBg} ${surface.textSubtle} text-[10px] font-medium leading-none shrink-0`}>
+                Gemini 4 Hydrogen
+              </span>
             </div>
-            <span className={`text-[11px] ${surface.textSubtle} truncate block mt-0.5`}>
-              Guided questions
-            </span>
+            {panelHeaderStyle === 'detailed' && (
+              <span className={`text-[11px] ${surface.textSubtle} truncate block mt-0.5`}>
+                Guided questions
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Thinking Depth & Placement Controls */}
+        {/* 4-Tier Reasoning Effort Slider & Placement Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <div className={`flex items-center p-0.5 rounded-xl ${surface.chipBg} border ${surface.border}`}>
-            {reasoningLevels.map((lvl) => {
-              const isActive = reasoningLevel === lvl.id;
-              return (
-                <button
-                  key={lvl.id}
-                  type="button"
-                  onClick={() => onReasoningLevelChange(lvl.id)}
-                  className={`px-2 py-0.5 text-[11px] font-medium rounded-lg transition-colors whitespace-nowrap ${
-                    isActive
-                      ? `${accentConf.bg} shadow-xs`
-                      : `${surface.textMuted} hover:opacity-80`
-                  }`}
-                  title={`Reasoning depth: ${lvl.title}`}
-                >
-                  {lvl.label}
-                </button>
-              );
-            })}
-          </div>
+          <ReasoningEffortSlider
+            value={reasoningLevel}
+            onChange={onReasoningLevelChange}
+            variant="compact"
+            accent={accent}
+            customAccentHex={customAccentHex}
+            bgGradient={bgGradient}
+            surfaceStyle={surfaceStyle}
+          />
 
           <PanelControls
             panelId="tutor"
@@ -228,12 +209,33 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
                 <Sparkles className={`w-4 h-4 ${accentConf.text}`} />
                 Code Insights
               </span>
-              {analysis.isOfflineFallback && (
+              {analysis.apiError ? (
+                <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  Gemini 4 Hydrogen {[analysis.apiError.code, analysis.apiError.status].filter(Boolean).join(' · ') || 'Unavailable'}
+                </span>
+              ) : analysis.isOfflineFallback ? (
                 <span className={`text-[11px] ${surface.textSubtle}`}>Offline helper</span>
-              )}
+              ) : null}
             </div>
 
-            {analysis.conceptHighlight && (
+            {analysis.apiError && (
+              <div className="p-3 rounded-xl border border-amber-500/35 bg-amber-500/10 text-xs space-y-1">
+                <div className="font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Gemini 4 Hydrogen error
+                    {analysis.apiError.code || analysis.apiError.status
+                      ? ` (${[analysis.apiError.code, analysis.apiError.status].filter(Boolean).join(' ')})`
+                      : ''}
+                  </span>
+                </div>
+                <p className={`${surface.textMuted} leading-relaxed`}>
+                  {analysis.apiError.message}
+                </p>
+              </div>
+            )}
+
+            {analysis.conceptHighlight && !analysis.apiError && (
               <div className={`p-3 rounded-xl ${accentConf.bgSubtle} border ${accentConf.border} text-xs ${surface.text} font-medium leading-relaxed`}>
                 {analysis.conceptHighlight}
               </div>
@@ -286,7 +288,11 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
               <div className="pt-1">
                 <button
                   type="button"
-                  onClick={() => setShowHint(!showHint)}
+                  onClick={() => {
+                    const next = !showHint;
+                    playSound(next ? 'toggleOn' : 'toggleOff');
+                    setShowHint(next);
+                  }}
                   className={`text-xs font-medium ${accentConf.text} hover:underline underline-offset-2`}
                 >
                   {showHint ? 'Hide gentle hints' : 'Need a gentle hint?'}
@@ -309,12 +315,23 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({
             className={`zenith-item-reveal p-3.5 rounded-2xl text-xs leading-relaxed ${
               m.role === 'user'
                 ? `ml-8 ${accentConf.bgSubtle} border ${accentConf.border} ${surface.text}`
+                : m.apiError
+                ? `mr-4 border border-amber-500/35 bg-amber-500/10 ${surface.text}`
                 : `mr-4 ${surface.cardMuted} border ${surface.border} ${surface.text}`
             }`}
           >
-            <div className={`flex items-center justify-between mb-1.5 text-[11px] ${surface.textSubtle}`}>
-              <span className="font-semibold">
-                {m.role === 'user' ? 'You' : 'Mentor'}
+            <div className={`flex items-center justify-between mb-1.5 text-[11px] ${m.apiError ? 'text-amber-700 dark:text-amber-300' : surface.textSubtle}`}>
+              <span className="font-semibold flex items-center gap-1.5">
+                {m.apiError && <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                {m.role === 'user'
+                  ? 'You'
+                  : m.apiError
+                  ? `Mentor · Gemini 4 Hydrogen${
+                      m.apiError.code || m.apiError.status
+                        ? ` (${[m.apiError.code, m.apiError.status].filter(Boolean).join(' ')})`
+                        : ' Error'
+                    }`
+                  : 'Mentor'}
               </span>
               <span>{m.timestamp}</span>
             </div>

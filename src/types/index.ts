@@ -79,6 +79,12 @@ export interface AdaptiveChallenge {
   xpReward: number;
 }
 
+export interface GeminiApiErrorInfo {
+  code?: number;
+  status?: string;
+  message: string;
+}
+
 export interface SocraticAnalysis {
   analysis: string;
   probingQuestions: string[];
@@ -86,6 +92,7 @@ export interface SocraticAnalysis {
   issuesDetected: string[];
   hints: string[];
   isOfflineFallback?: boolean;
+  apiError?: GeminiApiErrorInfo;
 }
 
 export interface TutorMessage {
@@ -94,6 +101,27 @@ export interface TutorMessage {
   text: string;
   probingQuestion?: string;
   timestamp: string;
+  apiError?: GeminiApiErrorInfo;
+}
+
+export interface HydrogenCodeEdit {
+  id: string;
+  title: string;
+  reason: string;
+  severity: 'error' | 'edge_case' | 'nuance';
+  lineStart: number;
+  lineEnd: number;
+  targetSnippet: string;
+  replacementSnippet: string;
+  status: 'pending' | 'approved' | 'denied';
+}
+
+export interface HydrogenReviewResult {
+  bullets: string[];
+  edits: HydrogenCodeEdit[];
+  reviewedAt: string;
+  sourceCodeSnapshot: string;
+  apiError?: GeminiApiErrorInfo;
 }
 
 export interface AutocompleteItem {
@@ -111,6 +139,9 @@ export type AccentColor =
   | 'slate'
   | 'plum'
   | 'moss'
+  | 'olive'
+  | 'dusk'
+  | 'custom'
   | 'cyan'
   | 'emerald'
   | 'amber'
@@ -124,8 +155,11 @@ export type BackgroundGradientStyle =
   | 'warm-linen'
   | 'sunlit-meadow'
   | 'coastal-breeze'
+  | 'meadow-blossom'
   | 'warm-espresso'
   | 'twilight-cedar'
+  | 'midnight-pine'
+  | 'starlit-slate'
   | 'deep-solid'
   | 'ambient-radial'
   | 'midnight-linear'
@@ -135,6 +169,8 @@ export type SyntaxTheme =
   | 'warm-botanical'
   | 'soft-pastel'
   | 'warm-amber'
+  | 'coastal-calm'
+  | 'nordic-moss'
   | 'ink-mono'
   | 'polyglot-vibrant'
   | 'pastel-soft'
@@ -153,27 +189,51 @@ export type LayoutPreset =
 export type PanelId = 'editor' | 'terminal' | 'tutor';
 export type NavPlacement = 'top' | 'bottom' | 'left' | 'right';
 export type ChallengePlacement = 'top' | 'bottom' | 'hidden';
-export type PanelGapSize = 'tight' | 'cozy' | 'airy';
-export type CornerRadiusStyle = 'subtle' | 'rounded' | 'pillowy';
-export type EditorFontSize = 'sm' | 'md' | 'lg';
+export type PanelGapSize = 'none' | 'tight' | 'cozy' | 'airy';
+export type CornerRadiusStyle = 'sharp' | 'subtle' | 'rounded' | 'pillowy';
+export type EditorFontSize = 'sm' | 'md' | 'lg' | 'xl';
+export type EditorLineHeight = 'compact' | 'comfortable' | 'relaxed';
+export type UIFontFamily = 'jakarta' | 'dm-sans' | 'serif' | 'mono';
+export type EditorFontFamily = 'jetbrains' | 'ibm-plex' | 'fira' | 'system';
+export type SurfaceStyle = 'crisp' | 'tinted' | 'frosted';
+export type EditorSurfaceStyle = 'matte-slate' | 'warm-charcoal' | 'forest-ink' | 'soft-espresso';
+export type PanelHeaderStyle = 'detailed' | 'compact' | 'minimal';
+export type MotionIntensity = 'smooth' | 'snappy' | 'reduced';
 
 export type ReasoningLevel = 'low' | 'medium' | 'high' | 'xhigh';
 
-export type AutoTilingAlgorithm = 'smart-bsp' | 'equal-columns' | 'dwindle' | 'equal-rows';
+export type AutoTilingAlgorithm =
+  | 'smart-bsp'
+  | 'equal-columns'
+  | 'dwindle'
+  | 'equal-rows'
+  | 'stacked-windows'
+  | 'tabbed-windows'
+  | 'master-tabbed';
 export type AutoTilingDirection = 'auto' | 'horizontal' | 'vertical';
+export type TabBarPlacement = 'top' | 'bottom';
+export type TabBarDensity = 'compact' | 'rich';
 
 export interface InterfaceCustomization {
   presetName: string;
   accent: AccentColor;
+  customAccentHex: string;
   bgGradient: BackgroundGradientStyle;
+  showAmbientGlow: boolean;
+  surfaceStyle: SurfaceStyle;
+  editorSurface: EditorSurfaceStyle;
   syntaxTheme: SyntaxTheme;
   layoutPreset: LayoutPreset;
   reasoningLevel: ReasoningLevel;
   autoTiling: boolean;
   autoTilingAlgorithm: AutoTilingAlgorithm;
+  lastSplitAlgorithm: 'smart-bsp' | 'equal-columns' | 'dwindle' | 'equal-rows';
   autoTilingDirection: AutoTilingDirection;
   autoTilingMasterRatio: number; // 40 - 70 (% master tile)
   autoTilingAutoRebalance: boolean;
+  tabBarPlacement: TabBarPlacement;
+  tabBarDensity: TabBarDensity;
+  autoFocusTerminalOnRun: boolean;
   panelOrder: PanelId[];
   hiddenPanels: PanelId[];
   maximizedPanel: PanelId | null;
@@ -183,8 +243,19 @@ export interface InterfaceCustomization {
   splitRatioY: number; // 25 - 80 (% for top stacked panel)
   panelGap: PanelGapSize;
   cornerRadius: CornerRadiusStyle;
+  panelHeaderStyle: PanelHeaderStyle;
+  uiFontFamily: UIFontFamily;
+  editorFontFamily: EditorFontFamily;
   editorFontSize: EditorFontSize;
+  editorLineHeight: EditorLineHeight;
+  editorTabSize: 2 | 4;
   showLineNumbers: boolean;
+  wordWrap: boolean;
+  showStatusBar: boolean;
+  motionIntensity: MotionIntensity;
+  soundEnabled: boolean;
+  soundVolume: number; // 0.1 - 1.0
+  editorKeySounds: boolean;
   panelPositions: {
     editor: number;
     tutor: number;

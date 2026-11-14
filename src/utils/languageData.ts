@@ -318,16 +318,25 @@ func main() {
     extension: '.cs',
     category: 'Application & Web',
     paradigm: 'Modern Multi-Paradigm, LINQ & .NET CLR',
-    tagline: 'Records, pattern matching, LINQ pipelines, and nullable reference safety.',
-    compiler: '.NET 8 (C# 12)',
+    tagline: 'LINQ pipelines, strong typing, properties, and managed .NET execution.',
+    compiler: '.NET / C# Compiler',
     defaultCode: `// Zenith Code - C# Environment
-// Explore records, LINQ pipelines, and modern pattern matching
+// Explore classes, LINQ pipelines, and string interpolation
 
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-record Metric(string Name, double Value);
+class Metric
+{
+    public string Name { get; set; }
+    public double Value { get; set; }
+    public Metric(string name, double value)
+    {
+        Name = name;
+        Value = value;
+    }
+}
 
 class Program
 {
@@ -335,9 +344,9 @@ class Program
     {
         var metrics = new List<Metric>
         {
-            new("LatencyMs", 14.2),
-            new("Throughput", 840.0),
-            new("ErrorRate", 0.0)
+            new Metric("LatencyMs", 14.2),
+            new Metric("Throughput", 840.0),
+            new Metric("ErrorRate", 0.0)
         };
 
         var active = metrics

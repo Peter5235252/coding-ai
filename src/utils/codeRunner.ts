@@ -14,7 +14,7 @@ export interface ExecutionResult {
   compilerVersion?: string;
   memoryInsight?: string;
   executionTrace?: ExecutionTraceStep[];
-  engine?: 'native' | 'emulated' | 'local';
+  engine?: 'native' | 'wasm' | 'sandbox' | 'emulated' | 'local';
 }
 
 export interface RunCodeOptions {
@@ -113,7 +113,7 @@ export async function executeCode(
           compilerVersion: data.compilerVersion,
           memoryInsight: data.memoryInsight,
           executionTrace: data.executionTrace || [],
-          engine: data.engine || (language === 'python' ? 'native' : 'emulated'),
+          engine: data.engine || (language === 'python' || language === 'javascript' ? 'native' : 'sandbox'),
         };
       }
     }

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AccentColor, BackgroundGradientStyle, NavPlacement, SupportedLanguage } from '../types';
 import { SUPPORTED_LANGUAGES } from '../utils/languageData';
 import { ACCENT_MAP, getSurfacePalette } from '../utils/themeData';
+import { playSound } from '../utils/soundEngine';
 import { ChevronDown, Check, Cpu, Gamepad2, Terminal } from 'lucide-react';
 
 interface LanguageDropdownProps {
@@ -85,7 +86,11 @@ export const LanguageDropdown: React.FC<LanguageDropdownProps> = ({
       {/* Friendly Rounded Trigger */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const next = !isOpen;
+          playSound(next ? 'dropdownOpen' : 'dropdownClose');
+          setIsOpen(next);
+        }}
         className={`flex items-center gap-2 ${isVerticalRail ? 'px-2 py-2 w-full justify-center' : 'px-3 py-1.5'} rounded-xl border transition-all duration-150 ${surface.card} ${
           isOpen ? accentConf.border : `${surface.border} ${surface.hoverBg}`
         }`}
@@ -146,6 +151,7 @@ export const LanguageDropdown: React.FC<LanguageDropdownProps> = ({
                           key={langKey}
                           type="button"
                           onClick={() => {
+                            playSound('select');
                             onSelectLanguage(langKey);
                             setIsOpen(false);
                           }}
